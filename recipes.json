@@ -1,0 +1,5 @@
+{
+  "easy": ["Fried Eggs", "Tomato Soup", "Garlic Bread", "Pancakes", "Omelette"],
+  "normal": ["Caprese Salad", "Mushroom Risotto", "Beef Stew", "Carbonara", "Roast Chicken"],
+  "hard": ["Beef Wellington", "Duck a l'Orange", "Seafood Paella", "Lobster Bisque", "Rack of Lamb"]
+}

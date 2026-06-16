@@ -12,8 +12,11 @@ const path = require("path");
 
 const { loadConfig, decideTier, getTierConfig } = require("./tiers");
 const { DonationQueue } = require("./queue");
+const { loadRecipes, pickChoices, pickOne } = require("./recipes");
+const { SelectionManager } = require("./selection");
 
 const config = loadConfig();
+const recipes = loadRecipes();
 
 const serverHost = "127.0.0.1";
 const serverPort = 3000;
@@ -31,6 +34,8 @@ const audioContentTypes = {
 };
 
 const queue = new DonationQueue(config.queue);
+const selection = new SelectionManager();
+let selectionTimeoutId = null;
 
 const overlayState = {
   visible: false,
@@ -194,22 +199,77 @@ function ingestEvent(event) {
 // the Mod will eventually create the in-game order and report back via /finish.
 function dispatchToMod(grant) {
   console.log(
-    `[mod] create ${grant.tier} order for ${grant.donor.name} ` +
-      `(${grant.selection}/${grant.difficulty}, ${grant.cookMinutes ?? "no"} min)`,
+    `[mod] create ${grant.tier} order for ${grant.donor.name}: ${grant.recipe} ` +
+      `(${grant.cookMinutes ?? "no"} min)`,
   );
 }
 
+// A recipe has been chosen (random, picked, or timed-out) — create the order.
+function finalizeOrder(grant, recipe, timedOut) {
+  grant.recipe = recipe;
+
+  const label = getTierConfig(config, grant.tier).label;
+  showOverlay(grant.tier, `${grant.donor.name} — ${label}`, `Cooking: ${recipe}`);
+  dispatchToMod(grant);
+  logEntry({
+    eventId: grant.eventId,
+    tier: grant.tier,
+    donor: grant.donor.name,
+    recipe,
+    outcome: timedOut ? "ACTIVE_TIMEOUT_PICK" : "ACTIVE",
+  });
+}
+
+// Opens the viewer menu-selection window for a choice-tier grant.
+function openSelection(grant) {
+  const options = pickChoices(recipes, grant.difficulty, config.menuSelection.choiceCount);
+  selection.open(grant, options);
+
+  const optionText = options.map((name, i) => `${i + 1}) ${name}`).join("   ");
+  const seconds = config.menuSelection.timeoutSeconds;
+  showOverlay(grant.tier, `${grant.donor.name} — pick a dish (${seconds}s)`, optionText);
+
+  selectionTimeoutId = setTimeout(resolveSelectionTimeout, seconds * 1000);
+}
+
+function resolveSelectionTimeout() {
+  const result = selection.timeout();
+
+  if (result) {
+    finalizeOrder(result.grant, result.recipe, true);
+  }
+}
+
+// Routes a chat message to the open selection window.
+function handleChat(userId, text) {
+  const result = selection.submit(userId, text);
+
+  if (result.status === "accepted") {
+    clearTimeout(selectionTimeoutId);
+    finalizeOrder(result.grant, result.recipe, false);
+  }
+
+  return result;
+}
+
 function tick() {
+  // One menu window at a time (section 7): don't pull a new grant while a
+  // viewer is still choosing.
+  if (selection.isBusy()) {
+    return;
+  }
+
   const grant = queue.activate();
 
   if (!grant) {
     return;
   }
 
-  const label = getTierConfig(config, grant.tier).label;
-  showOverlay(grant.tier, `${grant.donor.name} — ${label}`, grant.amountText);
-  dispatchToMod(grant);
-  logEntry({ eventId: grant.eventId, tier: grant.tier, donor: grant.donor.name, outcome: "ACTIVE" });
+  if (grant.selection === "choice") {
+    openSelection(grant);
+  } else {
+    finalizeOrder(grant, pickOne(recipes, grant.difficulty), false);
+  }
 }
 
 function finishOrder(eventId, outcome) {
@@ -352,6 +412,28 @@ const server = http.createServer(async function (req, res) {
       const body = await readJsonBody(req);
       const grant = finishOrder(body.eventId, body.outcome);
       sendJson(res, 200, { ok: true, eventId: grant.eventId, outcome: grant.status });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message });
+    }
+    return;
+  }
+
+  if (pathname === "/chat") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { "Content-Type": "application/json; charset=utf-8", Allow: "POST" });
+      res.end(JSON.stringify({ ok: false, error: "Method not allowed" }));
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(req);
+
+      if (typeof body.userId !== "string" || typeof body.text !== "string") {
+        throw new Error("chat needs userId and text strings");
+      }
+
+      const result = handleChat(body.userId, body.text);
+      sendJson(res, 200, { ok: true, ...result });
     } catch (error) {
       sendJson(res, 400, { ok: false, error: error.message });
     }
