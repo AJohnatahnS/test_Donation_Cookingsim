@@ -8,6 +8,7 @@
 
 const { spawn } = require("child_process");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const BASE = "http://127.0.0.1:3000";
@@ -64,8 +65,19 @@ async function isUp() {
   }
 }
 
-async function withServer(run) {
-  const proc = spawn(process.execPath, ["server.js"], { cwd: __dirname, stdio: ["ignore", "ignore", "pipe"] });
+let stateCounter = 0;
+
+async function withServer(run, opts = {}) {
+  // Each server gets its own state file so scenarios stay isolated. Pass a fixed
+  // statePath to deliberately share state across restarts (recovery testing).
+  const generated = !opts.statePath;
+  const statePath = opts.statePath || path.join(os.tmpdir(), `dono-state-${process.pid}-${++stateCounter}.json`);
+
+  const proc = spawn(process.execPath, ["server.js"], {
+    cwd: __dirname,
+    stdio: ["ignore", "ignore", "pipe"],
+    env: { ...process.env, DONATION_STATE: statePath },
+  });
 
   let crashed = null;
   proc.stderr.on("data", (chunk) => {
@@ -89,6 +101,10 @@ async function withServer(run) {
     proc.kill();
     for (let i = 0; i < 50 && (await isUp()); i++) {
       await sleep(100);
+    }
+    if (generated) {
+      try { fs.unlinkSync(statePath); } catch { /* ignore */ }
+      try { fs.unlinkSync(statePath + ".tmp"); } catch { /* ignore */ }
     }
   }
 }
@@ -303,6 +319,42 @@ async function modLifecycleScenario() {
   });
 }
 
+// S9: crash recovery — feed grants, kill the server, restart it pointing at the
+// same state file, and verify dedup ids and queued grants survived.
+async function persistenceScenario() {
+  for (let round = 1; round <= ROUNDS; round++) {
+    const statePath = path.join(os.tmpdir(), `dono-persist-${process.pid}-${round}.json`);
+    try { fs.unlinkSync(statePath); } catch { /* ignore */ }
+
+    const ids = [];
+
+    // First run: accept five donations, then "crash".
+    await withServer(async () => {
+      for (let i = 0; i < 5; i++) {
+        const id = nextId("persist");
+        ids.push(id);
+        await post("/event", { platform: "youtube", eventId: id, donor: { id: nextId("u"), name: "P" }, amountThb: 20 });
+      }
+      await sleep(300);
+    }, { statePath });
+
+    // Second run: same state file -> should recover.
+    await withServer(async () => {
+      const dup = await post("/event", { platform: "youtube", eventId: ids[0], donor: { id: "x", name: "P" }, amountThb: 20 });
+      check(dup.status === 409, `persist ${round}: dedup survived restart (got ${dup.status})`);
+
+      const stats = (await get("/stats")).json;
+      check(stats.queued + stats.active >= 5, `persist ${round}: grants recovered (${stats.queued}+${stats.active})`);
+
+      const fresh = await post("/event", { platform: "youtube", eventId: nextId("fresh"), donor: { id: "y", name: "N" }, amountThb: 20 });
+      check(["queued", "queue_full"].includes(fresh.json.status), `persist ${round}: new events still accepted`);
+    }, { statePath });
+
+    try { fs.unlinkSync(statePath); } catch { /* ignore */ }
+    try { fs.unlinkSync(statePath + ".tmp"); } catch { /* ignore */ }
+  }
+}
+
 async function waitForPending(predicate, timeoutMs) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -333,6 +385,9 @@ async function main() {
 
   console.log("S8     mod lifecycle (confirm / cook / pause / finish / reject-retry)");
   await modLifecycleScenario();
+
+  console.log("S9     crash recovery (dedup + queued grants survive restart)");
+  await persistenceScenario();
 
   // Clean up the log the spawned servers wrote.
   const logPath = path.join(__dirname, "order-log.json");

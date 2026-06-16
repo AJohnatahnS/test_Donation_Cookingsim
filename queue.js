@@ -96,6 +96,24 @@ class DonationQueue {
       bossActive: this.active.filter((g) => g.tier === "BOSS_ORDER").length,
     };
   }
+
+  seenIds() {
+    return [...this.seenEventIds];
+  }
+
+  // Re-seeds dedup ids and re-queues recovered grants after a restart. Recovered
+  // grants bypass the dedup and cap checks (they are trusted, already-accepted
+  // donations) and re-enter as fresh QUEUED items.
+  restore(seenEventIds, grants) {
+    for (const id of seenEventIds) {
+      this.seenEventIds.add(id);
+    }
+    for (const grant of grants) {
+      this.seenEventIds.add(grant.eventId);
+      grant.status = "QUEUED";
+      this.queued.push(grant);
+    }
+  }
 }
 
 module.exports = { DonationQueue, TERMINAL_OUTCOMES };

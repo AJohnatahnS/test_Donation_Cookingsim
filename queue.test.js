@@ -77,4 +77,19 @@ function grant(id, tier) {
   console.log("ok  finish frees slot and validates outcome");
 })();
 
+// restore() re-seeds dedup ids and re-queues recovered grants.
+(function restore() {
+  const q = new DonationQueue({ maxQueued: 20, maxConcurrentOrders: 3, maxConcurrentBoss: 1 });
+  q.restore(["old1", "old2"], [grant("r1"), grant("r2", "BOSS_ORDER")]);
+
+  assert.strictEqual(q.stats().queued, 2, "recovered grants re-queued");
+  // A re-delivered donation that was already seen is rejected as duplicate.
+  assert.strictEqual(q.admit(grant("old1")).reason, "duplicate");
+  // Recovered grants are themselves deduped too.
+  assert.strictEqual(q.admit(grant("r1")).reason, "duplicate");
+  // The recovered grants still activate normally.
+  assert.strictEqual(q.activate().eventId, "r1");
+  console.log("ok  restore re-seeds dedup and re-queues grants");
+})();
+
 console.log("\nAll queue tests passed.");

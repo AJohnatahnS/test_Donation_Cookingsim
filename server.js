@@ -15,6 +15,10 @@ const { DonationQueue } = require("./queue");
 const { loadRecipePool } = require("./recipes");
 const { SelectionManager } = require("./selection");
 const { OrderTimers } = require("./timers");
+const persistence = require("./persistence");
+
+// Crash-recovery snapshot path. Set DONATION_STATE=none to disable persistence.
+const STATE_PATH = process.env.DONATION_STATE || path.join(__dirname, "state.json");
 
 const config = loadConfig();
 const recipePool = loadRecipePool({
@@ -202,10 +206,12 @@ function ingestEvent(event) {
   if (!result.accepted && result.reason === "queue_full") {
     showOverlay(tier, `${event.donor.name} — thank you!`, "Queue is full, recorded with thanks");
     logEntry({ eventId, platform: event.platform, tier, donor: event.donor.name, outcome: "QUEUE_CAP_REACHED" });
+    persist();
     return { status: "queue_full", eventId, tier };
   }
 
   logEntry({ eventId, platform: event.platform, tier, donor: event.donor.name, outcome: "QUEUED" });
+  persist();
   return { status: "queued", eventId, tier, queueSize: queue.stats().queued };
 }
 
@@ -241,6 +247,8 @@ function failNoRecipe(grant) {
 // A recipe has been chosen (random, picked, or timed-out) — create the order.
 function finalizeOrder(grant, recipe, timedOut) {
   grant.recipe = recipe;
+  // Remember the other shown dishes so a Mod rejection can try them first (section 5).
+  grant.remainingOptions = (grant.shownOptions || []).filter((option) => option.id !== recipe.id);
   recipePool.recordPicked(recipe.id);
 
   const label = getTierConfig(config, grant.tier).label;
@@ -253,6 +261,7 @@ function finalizeOrder(grant, recipe, timedOut) {
     recipe: recipe.name,
     outcome: timedOut ? "DISPATCHED_TIMEOUT_PICK" : "DISPATCHED",
   });
+  persist();
 }
 
 // Opens the viewer menu-selection window for a choice-tier grant.
@@ -266,6 +275,7 @@ function openSelection(grant) {
     return;
   }
 
+  grant.shownOptions = options;
   selection.open(grant, options);
 
   const optionText = options.map((recipe, i) => `${i + 1}) ${recipe.name}`).join("   ");
@@ -353,27 +363,32 @@ function confirmOrder(eventId, ok) {
   const label = getTierConfig(config, grant.tier).label;
   showOverlay(grant.tier, `${grant.donor.name} — ${label}`, `Cooking: ${grant.recipe.name}`);
   logEntry({ eventId, tier: grant.tier, donor: grant.donor.name, recipe: grant.recipe.name, outcome: "COOKING" });
+  persist();
   return { state: "COOKING", eventId };
 }
 
-// Mod could not make the chosen recipe. Regenerate a different recipe once
-// (section 5); if that also fails, cancel as FAILED_GAME_NOT_READY.
+// Mod could not make the chosen recipe (section 5). In order:
+//   1) try the other dishes already shown to the viewer (random),
+//   2) regenerate a different recipe once,
+//   3) otherwise cancel as FAILED_GAME_NOT_READY.
 function rejectOrder(order) {
   const grant = order.grant;
-  grant.retries = (grant.retries || 0) + 1;
 
-  if (grant.retries <= 1) {
+  const stillMakeable = (grant.remainingOptions || []).filter((recipe) => recipePool.isMakeable(recipe));
+  if (stillMakeable.length > 0) {
+    const next = stillMakeable[Math.floor(Math.random() * stillMakeable.length)];
+    grant.remainingOptions = stillMakeable.filter((recipe) => recipe.id !== next.id);
+    return redispatch(order, next, "DISPATCHED_RETRY_OPTION");
+  }
+
+  if (!grant.regenerated) {
+    grant.regenerated = true;
     const replacement = recipePool.choose(grant.difficulty, 1, {
       cookingNames: cookingNames().filter((name) => name !== grant.recipe.name),
     })[0];
 
     if (replacement && replacement.id !== grant.recipe.id) {
-      grant.recipe = replacement;
-      recipePool.recordPicked(replacement.id);
-      order.state = "DISPATCHED";
-      showOverlay(grant.tier, `${grant.donor.name} — retrying`, `New dish: ${replacement.name}`);
-      logEntry({ eventId: grant.eventId, tier: grant.tier, donor: grant.donor.name, recipe: replacement.name, outcome: "DISPATCHED_RETRY" });
-      return { state: "DISPATCHED", eventId: grant.eventId, recipe: replacement.name };
+      return redispatch(order, replacement, "DISPATCHED_RETRY");
     }
   }
 
@@ -381,7 +396,20 @@ function rejectOrder(order) {
   queue.finish(grant.eventId, "FAILED");
   showOverlay(grant.tier, `${grant.donor.name} — order cancelled`, "Could not make this order");
   logEntry({ eventId: grant.eventId, tier: grant.tier, donor: grant.donor.name, outcome: "FAILED_GAME_NOT_READY" });
+  persist();
   return { state: "FAILED", eventId: grant.eventId };
+}
+
+// Re-sends an order to the Mod with a different recipe.
+function redispatch(order, recipe, outcome) {
+  const grant = order.grant;
+  grant.recipe = recipe;
+  recipePool.recordPicked(recipe.id);
+  order.state = "DISPATCHED";
+  showOverlay(grant.tier, `${grant.donor.name} — retrying`, `New dish: ${recipe.name}`);
+  logEntry({ eventId: grant.eventId, tier: grant.tier, donor: grant.donor.name, recipe: recipe.name, outcome });
+  persist();
+  return { state: "DISPATCHED", eventId: grant.eventId, recipe: recipe.name };
 }
 
 // A cook timer ran out (section 6): end just that order.
@@ -413,7 +441,56 @@ function finishOrder(eventId, outcome) {
   orders.delete(eventId);
   const grant = queue.finish(eventId, outcome);
   logEntry({ eventId, tier: grant.tier, donor: grant.donor.name, outcome });
+  persist();
   return grant;
+}
+
+// ---------------------------------------------------------------------------
+// Crash recovery
+// ---------------------------------------------------------------------------
+
+// Fields that are re-derived when a grant re-runs, so they are not persisted.
+const TRANSIENT_GRANT_FIELDS = new Set([
+  "recipe",
+  "shownOptions",
+  "remainingOptions",
+  "regenerated",
+  "status",
+]);
+
+function snapshotGrant(grant) {
+  const out = {};
+  for (const key of Object.keys(grant)) {
+    if (!TRANSIENT_GRANT_FIELDS.has(key)) {
+      out[key] = grant[key];
+    }
+  }
+  return out;
+}
+
+function persist() {
+  try {
+    persistence.save(STATE_PATH, {
+      seenEventIds: queue.seenIds(),
+      // Every non-terminal grant (queued + in-flight) so none is lost.
+      grants: [...queue.queued, ...queue.active].map(snapshotGrant),
+    });
+  } catch (error) {
+    console.error("persist failed:", error.message);
+  }
+}
+
+// On startup, re-seed dedup ids and re-queue grants that were mid-flight.
+// In-flight orders re-run from scratch (the game lost them on restart); dedup
+// ids ensure a re-delivered donation never creates a second order.
+function recoverState() {
+  const state = persistence.load(STATE_PATH);
+  if (state.grants.length > 0 || state.seenEventIds.length > 0) {
+    queue.restore(state.seenEventIds, state.grants);
+    console.log(
+      `Recovered ${state.grants.length} grant(s) and ${state.seenEventIds.length} seen id(s) from ${STATE_PATH}`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -685,6 +762,8 @@ const server = http.createServer(async function (req, res) {
   res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
   res.end("Not found");
 });
+
+recoverState();
 
 server.listen(serverPort, serverHost, function () {
   console.log(`Donation pipeline running at http://${serverHost}:${serverPort}`);

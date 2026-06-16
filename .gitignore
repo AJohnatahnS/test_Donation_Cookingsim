@@ -1,5 +1,7 @@
 # Generated at runtime
 order-log.json
+state.json
+state.json.tmp
 *.out
 node_modules/
 
