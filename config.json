@@ -46,6 +46,13 @@
 
   "youtube": {
     "currency": "THB",
+    "exchangeRatesToThb": {
+      "THB": 1,
+      "USD": 36.5,
+      "EUR": 39.0,
+      "GBP": 46.0,
+      "JPY": 0.23
+    },
     "thresholds": [
       { "minAmount": 1000, "tier": "BOSS_ORDER" },
       { "minAmount": 500, "tier": "HARD_CHALLENGE" },
