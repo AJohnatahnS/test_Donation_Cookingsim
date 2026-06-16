@@ -12,11 +12,15 @@ const path = require("path");
 
 const { loadConfig, decideTier, getTierConfig } = require("./tiers");
 const { DonationQueue } = require("./queue");
-const { loadRecipes, pickChoices, pickOne } = require("./recipes");
+const { loadRecipePool } = require("./recipes");
 const { SelectionManager } = require("./selection");
 
 const config = loadConfig();
-const recipes = loadRecipes();
+const recipePool = loadRecipePool({
+  disabled: config.recipePool.disabled,
+  kitchen: config.recipePool.kitchen,
+  cooldownWindow: config.menuSelection.recentRecipeCooldown,
+});
 
 const serverHost = "127.0.0.1";
 const serverPort = 3000;
@@ -199,33 +203,61 @@ function ingestEvent(event) {
 // the Mod will eventually create the in-game order and report back via /finish.
 function dispatchToMod(grant) {
   console.log(
-    `[mod] create ${grant.tier} order for ${grant.donor.name}: ${grant.recipe} ` +
+    `[mod] create ${grant.tier} order for ${grant.donor.name}: ${grant.recipe.name} ` +
       `(${grant.cookMinutes ?? "no"} min)`,
   );
+}
+
+// Names of recipes currently cooking, so the pool can avoid duplicates.
+function cookingNames() {
+  return queue.active
+    .filter((grant) => grant.recipe)
+    .map((grant) => grant.recipe.name);
+}
+
+// No makeable recipe exists for this grant — cancel it (spec section 5).
+function failNoRecipe(grant) {
+  queue.finish(grant.eventId, "FAILED");
+  showOverlay(grant.tier, `${grant.donor.name} — order cancelled`, "No available recipe right now");
+  logEntry({
+    eventId: grant.eventId,
+    tier: grant.tier,
+    donor: grant.donor.name,
+    outcome: "FAILED_GAME_NOT_READY",
+  });
 }
 
 // A recipe has been chosen (random, picked, or timed-out) — create the order.
 function finalizeOrder(grant, recipe, timedOut) {
   grant.recipe = recipe;
+  recipePool.recordPicked(recipe.id);
 
   const label = getTierConfig(config, grant.tier).label;
-  showOverlay(grant.tier, `${grant.donor.name} — ${label}`, `Cooking: ${recipe}`);
+  showOverlay(grant.tier, `${grant.donor.name} — ${label}`, `Cooking: ${recipe.name}`);
   dispatchToMod(grant);
   logEntry({
     eventId: grant.eventId,
     tier: grant.tier,
     donor: grant.donor.name,
-    recipe,
+    recipe: recipe.name,
     outcome: timedOut ? "ACTIVE_TIMEOUT_PICK" : "ACTIVE",
   });
 }
 
 // Opens the viewer menu-selection window for a choice-tier grant.
 function openSelection(grant) {
-  const options = pickChoices(recipes, grant.difficulty, config.menuSelection.choiceCount);
+  const options = recipePool.choose(grant.difficulty, config.menuSelection.choiceCount, {
+    cookingNames: cookingNames(),
+  });
+
+  if (options.length === 0) {
+    failNoRecipe(grant);
+    return;
+  }
+
   selection.open(grant, options);
 
-  const optionText = options.map((name, i) => `${i + 1}) ${name}`).join("   ");
+  const optionText = options.map((recipe, i) => `${i + 1}) ${recipe.name}`).join("   ");
   const seconds = config.menuSelection.timeoutSeconds;
   showOverlay(grant.tier, `${grant.donor.name} — pick a dish (${seconds}s)`, optionText);
 
@@ -267,9 +299,18 @@ function tick() {
 
   if (grant.selection === "choice") {
     openSelection(grant);
-  } else {
-    finalizeOrder(grant, pickOne(recipes, grant.difficulty), false);
+    return;
   }
+
+  // Standard tier: random makeable recipe, no viewer input.
+  const recipe = recipePool.chooseOne(grant.difficulty, { cookingNames: cookingNames() });
+
+  if (!recipe) {
+    failNoRecipe(grant);
+    return;
+  }
+
+  finalizeOrder(grant, recipe, false);
 }
 
 function finishOrder(eventId, outcome) {
@@ -434,6 +475,29 @@ const server = http.createServer(async function (req, res) {
 
       const result = handleChat(body.userId, body.text);
       sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message });
+    }
+    return;
+  }
+
+  if (pathname === "/kitchen") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { "Content-Type": "application/json; charset=utf-8", Allow: "POST" });
+      res.end(JSON.stringify({ ok: false, error: "Method not allowed" }));
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(req);
+
+      // tokens: array of available equipment/ingredient tokens, or null for "all".
+      if (body.tokens !== null && !Array.isArray(body.tokens)) {
+        throw new Error("kitchen tokens must be an array or null");
+      }
+
+      recipePool.setKitchen(body.tokens);
+      sendJson(res, 200, { ok: true });
     } catch (error) {
       sendJson(res, 400, { ok: false, error: error.message });
     }

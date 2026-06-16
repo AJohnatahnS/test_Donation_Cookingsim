@@ -86,6 +86,11 @@
     "recentRecipeCooldown": 5
   },
 
+  "recipePool": {
+    "disabled": [],
+    "kitchen": null
+  },
+
   "queue": {
     "maxQueued": 20,
     "maxConcurrentOrders": 3,

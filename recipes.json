@@ -1,5 +1,21 @@
 {
-  "easy": ["Fried Eggs", "Tomato Soup", "Garlic Bread", "Pancakes", "Omelette"],
-  "normal": ["Caprese Salad", "Mushroom Risotto", "Beef Stew", "Carbonara", "Roast Chicken"],
-  "hard": ["Beef Wellington", "Duck a l'Orange", "Seafood Paella", "Lobster Bisque", "Rack of Lamb"]
+  "recipes": [
+    { "id": "fried_eggs", "name": "Fried Eggs", "difficulty": "easy", "requires": ["stove", "pan", "eggs"] },
+    { "id": "tomato_soup", "name": "Tomato Soup", "difficulty": "easy", "requires": ["stove", "pot", "tomato"] },
+    { "id": "garlic_bread", "name": "Garlic Bread", "difficulty": "easy", "requires": ["oven", "bread", "garlic"] },
+    { "id": "pancakes", "name": "Pancakes", "difficulty": "easy", "requires": ["stove", "pan", "flour", "eggs"] },
+    { "id": "omelette", "name": "Omelette", "difficulty": "easy", "requires": ["stove", "pan", "eggs"] },
+
+    { "id": "caprese_salad", "name": "Caprese Salad", "difficulty": "normal", "requires": ["knife", "tomato", "cheese", "basil"] },
+    { "id": "mushroom_risotto", "name": "Mushroom Risotto", "difficulty": "normal", "requires": ["stove", "pot", "rice", "mushroom"] },
+    { "id": "beef_stew", "name": "Beef Stew", "difficulty": "normal", "requires": ["stove", "pot", "beef"] },
+    { "id": "carbonara", "name": "Carbonara", "difficulty": "normal", "requires": ["stove", "pot", "pasta", "eggs"] },
+    { "id": "roast_chicken", "name": "Roast Chicken", "difficulty": "normal", "requires": ["oven", "tray", "chicken"] },
+
+    { "id": "beef_wellington", "name": "Beef Wellington", "difficulty": "hard", "requires": ["oven", "tray", "beef", "pastry"] },
+    { "id": "duck_orange", "name": "Duck a l'Orange", "difficulty": "hard", "requires": ["oven", "tray", "duck", "orange"] },
+    { "id": "seafood_paella", "name": "Seafood Paella", "difficulty": "hard", "requires": ["stove", "pan", "rice", "seafood"] },
+    { "id": "lobster_bisque", "name": "Lobster Bisque", "difficulty": "hard", "requires": ["stove", "pot", "lobster"] },
+    { "id": "rack_of_lamb", "name": "Rack of Lamb", "difficulty": "hard", "requires": ["oven", "tray", "lamb"] }
+  ]
 }
