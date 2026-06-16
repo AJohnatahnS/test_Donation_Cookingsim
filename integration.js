@@ -245,13 +245,72 @@ async function menuSelectionScenario() {
       const picked = await post("/chat", { userId: owner, text: "1" });
       check(picked.json.status === "accepted" && picked.json.recipe, `round ${round}: owner pick accepted`);
 
-      const cooking = await waitForState((s) => /^Cooking:/.test(s.subtitle), 2000);
-      check(cooking !== null, `round ${round}: order now cooking`);
+      const dispatched = await waitForState((s) => /^Order:/.test(s.subtitle), 2000);
+      check(dispatched !== null, `round ${round}: order dispatched to mod`);
 
       const done = await post("/finish", { eventId: id, outcome: "COMPLETED" });
       check(done.json.ok === true, `round ${round}: /finish completed`);
     }
   });
+}
+
+// S8: full Mod lifecycle over HTTP — pick, /pending, /confirm, cook timer,
+// pause/resume, /finish, plus the reject -> retry path.
+async function modLifecycleScenario() {
+  await withServer(async () => {
+    for (let round = 1; round <= ROUNDS; round++) {
+      // --- happy path: timed Priority order ---
+      const id = nextId("mod");
+      const owner = nextId("owner");
+      await post("/event", { platform: "youtube", eventId: id, donor: { id: owner, name: `M${round}` }, amountThb: 100 });
+
+      const prompt = await waitForState((s) => s.visible && /pick a dish/.test(s.title), 5000);
+      check(prompt !== null, `mod ${round}: pick prompt`);
+      const picked = await post("/chat", { userId: owner, text: "1" });
+      check(picked.json.status === "accepted", `mod ${round}: pick accepted`);
+
+      const pending = await waitForPending((list) => list.some((o) => o.eventId === id), 2000);
+      check(pending !== null, `mod ${round}: order appears in /pending`);
+
+      const confirm = await post("/confirm", { eventId: id, ok: true });
+      check(confirm.json.state === "COOKING", `mod ${round}: confirm -> cooking`);
+
+      let stats = (await get("/stats")).json;
+      check(stats.cooking >= 1, `mod ${round}: a cook timer is running`);
+
+      check((await post("/game", { state: "paused" })).json.gameActive === false, `mod ${round}: game pauses`);
+      check((await post("/game", { state: "playing" })).json.gameActive === true, `mod ${round}: game resumes`);
+
+      const done = await post("/finish", { eventId: id, outcome: "COMPLETED" });
+      check(done.json.ok === true, `mod ${round}: finish completed`);
+
+      // --- reject path: Mod can't make it, server regenerates once ---
+      const rid = nextId("rej");
+      const rowner = nextId("owner");
+      await post("/event", { platform: "youtube", eventId: rid, donor: { id: rowner, name: `R${round}` }, amountThb: 100 });
+      await waitForState((s) => s.visible && /pick a dish/.test(s.title), 5000);
+      await post("/chat", { userId: rowner, text: "1" });
+      await waitForPending((list) => list.some((o) => o.eventId === rid), 2000);
+
+      const reject = await post("/confirm", { eventId: rid, ok: false });
+      check(reject.json.state === "DISPATCHED" && reject.json.recipe, `mod ${round}: reject regenerates a new recipe`);
+
+      const retried = await waitForPending((list) => list.some((o) => o.eventId === rid), 2000);
+      check(retried !== null, `mod ${round}: regenerated order back in /pending`);
+      await post("/confirm", { eventId: rid, ok: true });
+      await post("/finish", { eventId: rid, outcome: "COMPLETED" });
+    }
+  });
+}
+
+async function waitForPending(predicate, timeoutMs) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const { json } = await get("/pending");
+    if (predicate(json.pending)) return json.pending;
+    await sleep(120);
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -271,6 +330,9 @@ async function main() {
 
   console.log("S7     menu selection + finish");
   await menuSelectionScenario();
+
+  console.log("S8     mod lifecycle (confirm / cook / pause / finish / reject-retry)");
+  await modLifecycleScenario();
 
   // Clean up the log the spawned servers wrote.
   const logPath = path.join(__dirname, "order-log.json");

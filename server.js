@@ -14,6 +14,7 @@ const { loadConfig, decideTier, getTierConfig } = require("./tiers");
 const { DonationQueue } = require("./queue");
 const { loadRecipePool } = require("./recipes");
 const { SelectionManager } = require("./selection");
+const { OrderTimers } = require("./timers");
 
 const config = loadConfig();
 const recipePool = loadRecipePool({
@@ -40,6 +41,15 @@ const audioContentTypes = {
 const queue = new DonationQueue(config.queue);
 const selection = new SelectionManager();
 let selectionTimeoutId = null;
+
+// Orders dispatched to the Mod, keyed by eventId: { grant, state }.
+// state: "DISPATCHED" (awaiting in-game creation) | "COOKING" (created).
+const orders = new Map();
+const timers = new OrderTimers({ onExpire: expireOrder });
+
+// Pauses while the game is paused or sitting in the main menu (section 6):
+// no new orders are pulled and cook timers are frozen.
+let gameActive = true;
 
 const overlayState = {
   visible: false,
@@ -199,11 +209,12 @@ function ingestEvent(event) {
   return { status: "queued", eventId, tier, queueSize: queue.stats().queued };
 }
 
-// Stub for the future Cooking Simulator Mod integration. For now it only logs;
-// the Mod will eventually create the in-game order and report back via /finish.
+// Hands an order to the Mod. The Mod polls GET /pending, creates the in-game
+// order, then calls POST /confirm. The console line mirrors what it will see.
 function dispatchToMod(grant) {
+  orders.set(grant.eventId, { grant, state: "DISPATCHED" });
   console.log(
-    `[mod] create ${grant.tier} order for ${grant.donor.name}: ${grant.recipe.name} ` +
+    `[mod] dispatch ${grant.tier} order for ${grant.donor.name}: ${grant.recipe.name} ` +
       `(${grant.cookMinutes ?? "no"} min)`,
   );
 }
@@ -233,14 +244,14 @@ function finalizeOrder(grant, recipe, timedOut) {
   recipePool.recordPicked(recipe.id);
 
   const label = getTierConfig(config, grant.tier).label;
-  showOverlay(grant.tier, `${grant.donor.name} — ${label}`, `Cooking: ${recipe.name}`);
+  showOverlay(grant.tier, `${grant.donor.name} — ${label}`, `Order: ${recipe.name}`);
   dispatchToMod(grant);
   logEntry({
     eventId: grant.eventId,
     tier: grant.tier,
     donor: grant.donor.name,
     recipe: recipe.name,
-    outcome: timedOut ? "ACTIVE_TIMEOUT_PICK" : "ACTIVE",
+    outcome: timedOut ? "DISPATCHED_TIMEOUT_PICK" : "DISPATCHED",
   });
 }
 
@@ -285,6 +296,11 @@ function handleChat(userId, text) {
 }
 
 function tick() {
+  // Suspend processing while the game is paused or in the menu (section 6).
+  if (!gameActive) {
+    return;
+  }
+
   // One menu window at a time (section 7): don't pull a new grant while a
   // viewer is still choosing.
   if (selection.isBusy()) {
@@ -313,7 +329,88 @@ function tick() {
   finalizeOrder(grant, recipe, false);
 }
 
+// The Mod confirms (ok=true) or rejects (ok=false) in-game order creation.
+function confirmOrder(eventId, ok) {
+  const order = orders.get(eventId);
+
+  if (!order || order.state !== "DISPATCHED") {
+    throw new Error(`No dispatched order for event: ${eventId}`);
+  }
+
+  if (!ok) {
+    return rejectOrder(order);
+  }
+
+  order.state = "COOKING";
+  const grant = order.grant;
+
+  // Only Priority and above are timed; the clock starts now, on confirmation,
+  // so menu-selection and queue time are never counted (section 6).
+  if (grant.cookMinutes) {
+    timers.start(eventId, grant.cookMinutes * 60_000);
+  }
+
+  const label = getTierConfig(config, grant.tier).label;
+  showOverlay(grant.tier, `${grant.donor.name} — ${label}`, `Cooking: ${grant.recipe.name}`);
+  logEntry({ eventId, tier: grant.tier, donor: grant.donor.name, recipe: grant.recipe.name, outcome: "COOKING" });
+  return { state: "COOKING", eventId };
+}
+
+// Mod could not make the chosen recipe. Regenerate a different recipe once
+// (section 5); if that also fails, cancel as FAILED_GAME_NOT_READY.
+function rejectOrder(order) {
+  const grant = order.grant;
+  grant.retries = (grant.retries || 0) + 1;
+
+  if (grant.retries <= 1) {
+    const replacement = recipePool.choose(grant.difficulty, 1, {
+      cookingNames: cookingNames().filter((name) => name !== grant.recipe.name),
+    })[0];
+
+    if (replacement && replacement.id !== grant.recipe.id) {
+      grant.recipe = replacement;
+      recipePool.recordPicked(replacement.id);
+      order.state = "DISPATCHED";
+      showOverlay(grant.tier, `${grant.donor.name} — retrying`, `New dish: ${replacement.name}`);
+      logEntry({ eventId: grant.eventId, tier: grant.tier, donor: grant.donor.name, recipe: replacement.name, outcome: "DISPATCHED_RETRY" });
+      return { state: "DISPATCHED", eventId: grant.eventId, recipe: replacement.name };
+    }
+  }
+
+  orders.delete(grant.eventId);
+  queue.finish(grant.eventId, "FAILED");
+  showOverlay(grant.tier, `${grant.donor.name} — order cancelled`, "Could not make this order");
+  logEntry({ eventId: grant.eventId, tier: grant.tier, donor: grant.donor.name, outcome: "FAILED_GAME_NOT_READY" });
+  return { state: "FAILED", eventId: grant.eventId };
+}
+
+// A cook timer ran out (section 6): end just that order.
+function expireOrder(eventId) {
+  if (!orders.has(eventId)) {
+    return;
+  }
+  const grant = finishOrder(eventId, "EXPIRED");
+  showOverlay(grant.tier, `${grant.donor.name} — time's up`, `${grant.recipe.name} expired`);
+}
+
+// Game state from the Mod: "playing" resumes, "paused"/"menu" suspends.
+function setGameState(state) {
+  if (state === "playing") {
+    gameActive = true;
+    timers.resume();
+  } else if (state === "paused" || state === "menu") {
+    gameActive = false;
+    timers.pause();
+  } else {
+    throw new Error(`Unknown game state: ${state}`);
+  }
+  logEntry({ outcome: "GAME_STATE", state });
+  return { gameActive };
+}
+
 function finishOrder(eventId, outcome) {
+  timers.stop(eventId);
+  orders.delete(eventId);
   const grant = queue.finish(eventId, outcome);
   logEntry({ eventId, tier: grant.tier, donor: grant.donor.name, outcome });
   return grant;
@@ -504,8 +601,64 @@ const server = http.createServer(async function (req, res) {
     return;
   }
 
+  // Mod polls this for orders to create in-game.
+  if (pathname === "/pending") {
+    const pending = [];
+    for (const [eventId, order] of orders) {
+      if (order.state === "DISPATCHED") {
+        pending.push({
+          eventId,
+          tier: order.grant.tier,
+          recipe: order.grant.recipe.name,
+          recipeId: order.grant.recipe.id,
+          donor: order.grant.donor.name,
+          cookMinutes: order.grant.cookMinutes,
+        });
+      }
+    }
+    sendJson(res, 200, { pending });
+    return;
+  }
+
+  // Mod confirms (ok=true) or rejects (ok=false) in-game order creation.
+  if (pathname === "/confirm") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { "Content-Type": "application/json; charset=utf-8", Allow: "POST" });
+      res.end(JSON.stringify({ ok: false, error: "Method not allowed" }));
+      return;
+    }
+    try {
+      const body = await readJsonBody(req);
+      if (typeof body.eventId !== "string") {
+        throw new Error("confirm needs an eventId");
+      }
+      const result = confirmOrder(body.eventId, body.ok !== false);
+      sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message });
+    }
+    return;
+  }
+
+  // Mod reports game state: { state: "playing" | "paused" | "menu" }.
+  if (pathname === "/game") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { "Content-Type": "application/json; charset=utf-8", Allow: "POST" });
+      res.end(JSON.stringify({ ok: false, error: "Method not allowed" }));
+      return;
+    }
+    try {
+      const body = await readJsonBody(req);
+      const result = setGameState(body.state);
+      sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message });
+    }
+    return;
+  }
+
   if (pathname === "/stats") {
-    sendJson(res, 200, queue.stats());
+    sendJson(res, 200, { ...queue.stats(), cooking: timers.count(), gameActive });
     return;
   }
 
