@@ -1,6 +1,7 @@
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
+using HarmonyLib;
 using UnityEngine;
 
 namespace CookingSimDonationMod
@@ -28,9 +29,17 @@ namespace CookingSimDonationMod
             var simCookSeconds = Config.Bind("Game", "SimulatedCookSeconds", 5f,
                 "How long the simulated bridge 'cooks' each order").Value;
 
-            IGameBridge bridge = useSimulated
-                ? (IGameBridge)new SimulatedGameBridge(simCookSeconds)
-                : new CookingSimGameBridge();
+            IGameBridge bridge;
+            if (useSimulated)
+            {
+                bridge = new SimulatedGameBridge(simCookSeconds);
+            }
+            else
+            {
+                // Harmony patches in GameHooks raise order/state events from the game.
+                new Harmony(Guid).PatchAll();
+                bridge = new CookingSimGameBridge();
+            }
 
             var host = new GameObject("DonationRuntime");
             DontDestroyOnLoad(host);

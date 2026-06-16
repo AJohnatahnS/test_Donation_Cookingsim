@@ -1,26 +1,21 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace CookingSimDonationMod
 {
-    // Real bridge into Cooking Simulator. The method bodies are the only places
-    // that need the game's own classes; everything else in this mod is already
-    // complete. Fill these in against the game's assemblies (Assembly-CSharp)
-    // and raise the events as in-game things happen.
+    // Real bridge into Cooking Simulator's base-career order system, wired to the
+    // classes found in Assembly-CSharp.dll (see docs/cooking-sim-internals.md).
     //
-    // Hook strategy (BepInEx + HarmonyX):
-    //   * TryCreateOrder  -> call the game's order/queue manager to spawn an
-    //     order for `recipeId`. Use a RUNTIME unlock so the recipe is craftable
-    //     only while the mod is active — never write unlock state to the save
-    //     (spec section 1). Verify the recipe is makeable in the current kitchen
-    //     first; return false if not.
-    //   * OrderCompleted/OrderFailed -> Harmony-patch the game's order-complete
-    //     and order-expire/abandon methods; look up the eventId by the order
-    //     handle you stored in TryCreateOrder, then raise the event.
-    //   * GameStateChanged -> patch pause/unpause and scene/menu transitions.
-    //     Do NOT drive timing with Time.timeScale; just report state and let the
-    //     server hold the clock (spec section 6).
-    //   * GetKitchenTokens/KitchenChanged -> read the active appliances and
-    //     ingredient sources; map them to the same tokens used in recipes.json.
+    // IMPORTANT: this draft references the real game API but has NOT been built
+    // or run in this repo (the game assemblies + BepInEx are needed). Lines
+    // marked VERIFY must be confirmed in-game.
+    //
+    // Design assumption (see internals doc, mismatch #2): the server sends the
+    // game's own Recipe.Id (as a string) in `recipeId`, so the recipe pool is
+    // driven by the game's real base-game recipes. Also set
+    // config.queue.maxConcurrentOrders = 1, because the base career serves one
+    // dish at a time (mismatch #1).
     public class CookingSimGameBridge : IGameBridge
     {
         public event Action<string> OrderCompleted;
@@ -28,37 +23,84 @@ namespace CookingSimDonationMod
         public event Action<string> GameStateChanged;
         public event Action KitchenChanged;
 
-        // Map your in-game order handle to the donation eventId here, e.g.
-        // private readonly Dictionary<GameOrder, string> byOrder = new();
+        // game Recipe.Id -> donation eventId, set when we force an order.
+        private readonly Dictionary<int, string> recipeToEvent = new Dictionary<int, string>();
+
+        public CookingSimGameBridge()
+        {
+            GameHooks.OrderEnded += OnGameOrderEnded;
+            GameHooks.OrderFailed += OnGameOrderFailed;
+            GameHooks.GameStateChanged += OnGameStateChanged;
+        }
 
         public bool TryCreateOrder(PendingOrder order)
         {
-            // TODO: create the in-game order for order.recipeId and store the
-            // handle so OrderCompleted/OrderFailed can resolve it to eventId.
-            Plugin.Log.LogWarning(
-                "CookingSimGameBridge.TryCreateOrder is not wired to the game yet: " +
-                order.recipeId);
-            return false;
+            var fnm = FoodNetworkManager.Me; // confirmed singleton accessor
+            if (fnm == null)
+            {
+                Plugin.Log.LogWarning("FoodNetworkManager.Me is null (not in Food Network mode?)");
+                return false;
+            }
+
+            if (!int.TryParse(order.recipeId, out int gameId))
+            {
+                Plugin.Log.LogWarning("recipeId is not a game Recipe.Id: " + order.recipeId);
+                return false;
+            }
+
+            // Find the recipe among the base-game Food Network dishes. VERIFY that
+            // FoodnetworkDish is the right source and is populated at this point.
+            Recipe recipe = fnm.FoodnetworkDish.FirstOrDefault(r => r != null && r.Id == gameId);
+            if (recipe == null || !recipe.BaseGameRecipe)
+            {
+                Plugin.Log.LogWarning($"recipe {gameId} not found / not base game");
+                return false; // server will regenerate or fail (section 5)
+            }
+
+            // Force this recipe as the next order. VERIFY this triggers an order
+            // on demand within OrderLoop's cadence.
+            fnm.SetDebugRecipesOrder(true, recipe);
+            recipeToEvent[recipe.Id] = order.eventId;
+            Plugin.Log.LogInfo($"forced order recipe {recipe.Id} for {order.donor}");
+            return true;
         }
 
         public string[] GetKitchenTokens()
         {
-            // TODO: return the tokens available in the current kitchen.
-            // null = unrestricted until this is implemented.
+            // Base-game makeability is handled by only offering BaseGameRecipe
+            // recipes the game reports; no token mapping needed. Return null
+            // (unrestricted) until/unless finer filtering is wanted.
             return null;
         }
 
         public void Tick(float deltaTime)
         {
-            // TODO: optionally poll pause/menu and kitchen state, raising
-            // GameStateChanged / KitchenChanged when they change. Prefer Harmony
-            // patches over per-frame polling where the game exposes events.
+            // Event-driven via Harmony patches; nothing to poll.
         }
 
-        // Call these from your Harmony patches:
-        protected void RaiseCompleted(string eventId) => OrderCompleted?.Invoke(eventId);
-        protected void RaiseFailed(string eventId) => OrderFailed?.Invoke(eventId);
-        protected void RaiseGameState(string state) => GameStateChanged?.Invoke(state);
-        protected void RaiseKitchenChanged() => KitchenChanged?.Invoke();
+        private void OnGameOrderEnded(int recipeId)
+        {
+            if (recipeToEvent.TryGetValue(recipeId, out string eventId))
+            {
+                recipeToEvent.Remove(recipeId);
+                OrderCompleted?.Invoke(eventId);
+            }
+        }
+
+        private void OnGameOrderFailed(int recipeId)
+        {
+            if (recipeToEvent.TryGetValue(recipeId, out string eventId))
+            {
+                recipeToEvent.Remove(recipeId);
+                OrderFailed?.Invoke(eventId);
+            }
+        }
+
+        private void OnGameStateChanged(bool paused, bool isMenu)
+        {
+            string state = isMenu ? "menu" : paused ? "paused" : "playing";
+            GameStateChanged?.Invoke(state);
+            KitchenChanged?.Invoke(); // kitchen may differ after a scene change
+        }
     }
 }

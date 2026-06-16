@@ -9,10 +9,16 @@
 |---|---|
 | ชั้นโปรโตคอล (poll `/pending`, `/confirm`, `/finish`, `/game`, `/kitchen`) | ✅ เขียนครบ |
 | `SimulatedGameBridge` (ทดสอบกับ server โดยไม่ต้องมีเกม) | ✅ ใช้งานได้ |
-| `CookingSimGameBridge` (ต่อเข้าเกมจริง: สร้างออเดอร์, ครัว, pause, Runtime Unlock) | ⬜ เป็น stub — ต้องเติม method body กับ assembly ของเกม |
+| `CookingSimGameBridge` + `GameHooks` (ต่อเกมจริง) | 🟡 draft ต่อ API จริงแล้ว — **ยังไม่ build/รันในเกม** |
 
-ทุกอย่าง **ยกเว้น** การเรียก API ของเกมเขียนเสร็จแล้ว เหลือเติมแค่ใน
-`CookingSimGameBridge.cs` (มีคอมเมนต์บอกจุดต่อ Harmony ไว้)
+ชั้นโปรโตคอลเสร็จสมบูรณ์ ส่วน `CookingSimGameBridge.cs` + `GameHooks.cs` ตอนนี้
+อ้างชื่อคลาส/เมธอดจริงของเกม (`FoodNetworkManager`, `GameManager`, `Recipe`,
+`RecipesProvider`) ที่อ่านมาจาก `Assembly-CSharp.dll` — ดูแผนที่ภายในและจุดที่ต้อง
+ยืนยันในเกมที่ [../docs/cooking-sim-internals.md](../docs/cooking-sim-internals.md)
+
+> ⚠️ ก่อนใช้ต้องตัดสินใจ 2 เรื่อง (ดู internals doc): (1) ตั้ง
+> `config.queue.maxConcurrentOrders = 1` เพราะ Base career เสิร์ฟทีละออเดอร์;
+> (2) ให้ server ส่ง `recipeId` เป็น `Recipe.Id` จริงของเกม (ขับ recipe pool จากเกม)
 
 ## โครงสร้าง
 
