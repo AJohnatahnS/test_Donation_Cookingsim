@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>CookingSimDonationMod</AssemblyName>
+    <Description>Cooking Simulator donation-mode mod</Description>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <!-- BepInEx/Unity assemblies are not redistributable; never publish them. -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+
+    <!-- Point this at the game's Managed folder, e.g.
+         C:\Program Files (x86)\Steam\steamapps\common\Cooking Simulator\Cooking Simulator_Data\Managed
+         Override on the command line: dotnet build -p:GameManagedDir="..." -->
+    <GameManagedDir Condition="'$(GameManagedDir)' == ''">PATH\TO\Cooking Simulator_Data\Managed</GameManagedDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- BepInEx 5 (Mono) + HarmonyX come from NuGet for compile-time references. -->
+    <PackageReference Include="BepInEx.Core" Version="5.4.21" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Unity + game assemblies from the local install (compile reference only). -->
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameManagedDir)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UnityWebRequestModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.UnityWebRequestModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Needed once CookingSimGameBridge is wired to the game's own types. -->
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(GameManagedDir)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

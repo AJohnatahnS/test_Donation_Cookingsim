@@ -2,3 +2,7 @@
 order-log.json
 *.out
 node_modules/
+
+# .NET / mod build output
+mod/bin/
+mod/obj/
