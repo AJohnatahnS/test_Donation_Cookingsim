@@ -1,0 +1,26 @@
+[
+  {
+    "minAmount": 500,
+    "action": "MEGA_RUSH"
+  },
+  {
+    "minAmount": 300,
+    "action": "FREEZE_TIME"
+  },
+  {
+    "minAmount": 200,
+    "action": "BOSS_ORDER"
+  },
+  {
+    "minAmount": 100,
+    "action": "CHAOS_EVENT"
+  },
+  {
+    "minAmount": 50,
+    "action": "ADD_3_ORDERS"
+  },
+  {
+    "minAmount": 20,
+    "action": "ADD_1_ORDER"
+  }
+]

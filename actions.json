@@ -1,0 +1,38 @@
+{
+  "ADD_1_ORDER": {
+    "label": "New Order Added",
+    "overlayDurationMs": 3000,
+    "color": "#22c55e",
+    "sound": "add-order.mp3"
+  },
+  "ADD_3_ORDERS": {
+    "label": "Three Orders Added",
+    "overlayDurationMs": 4000,
+    "color": "#16a34a",
+    "sound": "add-three-orders.mp3"
+  },
+  "CHAOS_EVENT": {
+    "label": "Chaos Event",
+    "overlayDurationMs": 6000,
+    "color": "#ef4444",
+    "sound": "chaos.mp3"
+  },
+  "BOSS_ORDER": {
+    "label": "Boss Order",
+    "overlayDurationMs": 6000,
+    "color": "#a855f7",
+    "sound": "boss-order.mp3"
+  },
+  "FREEZE_TIME": {
+    "label": "Freeze Time",
+    "overlayDurationMs": 5000,
+    "color": "#38bdf8",
+    "sound": "freeze-time.mp3"
+  },
+  "MEGA_RUSH": {
+    "label": "Mega Rush Started",
+    "overlayDurationMs": 8000,
+    "color": "#facc15",
+    "sound": "mega-rush.mp3"
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "tiers": {
+    "SUPPORT": {
+      "label": "Support",
+      "selection": "none",
+      "difficulty": null,
+      "cookMinutes": null
+    },
+    "STANDARD": {
+      "label": "Standard",
+      "selection": "random",
+      "difficulty": "easy",
+      "cookMinutes": null
+    },
+    "VIEWER_CHOICE": {
+      "label": "Viewer Choice",
+      "selection": "choice",
+      "difficulty": "easy",
+      "cookMinutes": null
+    },
+    "PRIORITY": {
+      "label": "Priority",
+      "selection": "choice",
+      "difficulty": "normal",
+      "cookMinutes": 12
+    },
+    "CHALLENGE": {
+      "label": "Challenge",
+      "selection": "choice",
+      "difficulty": "normal",
+      "cookMinutes": 10
+    },
+    "HARD_CHALLENGE": {
+      "label": "Hard Challenge",
+      "selection": "choice",
+      "difficulty": "hard",
+      "cookMinutes": 8
+    },
+    "BOSS_ORDER": {
+      "label": "Boss Order",
+      "selection": "choice",
+      "difficulty": "hard",
+      "cookMinutes": 6
+    }
+  },
+
+  "youtube": {
+    "currency": "THB",
+    "thresholds": [
+      { "minAmount": 1000, "tier": "BOSS_ORDER" },
+      { "minAmount": 500, "tier": "HARD_CHALLENGE" },
+      { "minAmount": 300, "tier": "CHALLENGE" },
+      { "minAmount": 100, "tier": "PRIORITY" },
+      { "minAmount": 50, "tier": "VIEWER_CHOICE" },
+      { "minAmount": 20, "tier": "STANDARD" },
+      { "minAmount": 0, "tier": "SUPPORT" }
+    ],
+    "membership": {
+      "new": "VIEWER_CHOICE",
+      "renew": "STANDARD",
+      "milestone": "STANDARD",
+      "giftTiers": [
+        { "minCount": 10, "tier": "BOSS_ORDER" },
+        { "minCount": 5, "tier": "CHALLENGE" },
+        { "minCount": 1, "tier": "PRIORITY" }
+      ]
+    }
+  },
+
+  "tiktok": {
+    "unit": "coins",
+    "thresholds": [
+      { "minAmount": 10000, "tier": "BOSS_ORDER" },
+      { "minAmount": 3000, "tier": "HARD_CHALLENGE" },
+      { "minAmount": 1000, "tier": "CHALLENGE" },
+      { "minAmount": 500, "tier": "PRIORITY" },
+      { "minAmount": 100, "tier": "VIEWER_CHOICE" },
+      { "minAmount": 20, "tier": "STANDARD" },
+      { "minAmount": 1, "tier": "SUPPORT" }
+    ]
+  },
+
+  "menuSelection": {
+    "choiceCount": 3,
+    "timeoutSeconds": 20,
+    "recentRecipeCooldown": 5
+  },
+
+  "queue": {
+    "maxQueued": 20,
+    "maxConcurrentOrders": 3,
+    "maxConcurrentBoss": 1
+  },
+
+  "overlay": {
+    "defaultDurationMs": 4000,
+    "byTier": {
+      "SUPPORT": { "color": "#94a3b8", "sound": null, "durationMs": 3000 },
+      "STANDARD": { "color": "#22c55e", "sound": "add-order.mp3" },
+      "VIEWER_CHOICE": { "color": "#16a34a", "sound": "add-three-orders.mp3" },
+      "PRIORITY": { "color": "#38bdf8", "sound": "freeze-time.mp3" },
+      "CHALLENGE": { "color": "#a855f7", "sound": "chaos.mp3" },
+      "HARD_CHALLENGE": { "color": "#f97316", "sound": "mega-rush.mp3", "durationMs": 6000 },
+      "BOSS_ORDER": { "color": "#ef4444", "sound": "boss-order.mp3", "durationMs": 6000 }
+    }
+  }
+}

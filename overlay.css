@@ -1,0 +1,28 @@
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family: Arial, sans-serif;
+  background: transparent;
+}
+
+#box {
+  position: fixed;
+  left: 40px;
+  bottom: 40px;
+  padding: 18px 24px;
+  background: rgba(0, 0, 0, 0.78);
+  color: white;
+  border-left: 6px solid #ffcc00;
+  display: none;
+}
+
+#title {
+  font-size: 28px;
+  font-weight: bold;
+}
+
+#subtitle {
+  margin-top: 6px;
+  font-size: 18px;
+  opacity: 0.9;
+}
