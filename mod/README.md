@@ -7,7 +7,7 @@
 
 | ส่วน | สถานะ |
 |---|---|
-| ชั้นโปรโตคอล (poll `/pending`, `/confirm`, `/finish`, `/game`, `/kitchen`) | ✅ เขียนครบ |
+| ชั้นโปรโตคอล (poll `/pending`, `/confirm`, `/finish`, `/game`, `/catalog`) | ✅ เขียนครบ |
 | `SimulatedGameBridge` (ทดสอบกับ server โดยไม่ต้องมีเกม) | ✅ ใช้งานได้ |
 | `CookingSimGameBridge` + `GameHooks` (ต่อเกมจริง) | 🟡 draft ต่อ API จริงแล้ว — **ยังไม่ build/รันในเกม** |
 
@@ -16,9 +16,10 @@
 `RecipesProvider`) ที่อ่านมาจาก `Assembly-CSharp.dll` — ดูแผนที่ภายในและจุดที่ต้อง
 ยืนยันในเกมที่ [../docs/cooking-sim-internals.md](../docs/cooking-sim-internals.md)
 
-> ⚠️ ก่อนใช้ต้องตัดสินใจ 2 เรื่อง (ดู internals doc): (1) ตั้ง
-> `config.queue.maxConcurrentOrders = 1` เพราะ Base career เสิร์ฟทีละออเดอร์;
-> (2) ให้ server ส่ง `recipeId` เป็น `Recipe.Id` จริงของเกม (ขับ recipe pool จากเกม)
+> ✅ มิสแมตช์ 2 เรื่องกับเกมจริงแก้แล้ว: (1) `config.queue.maxConcurrentOrders = 1`
+> (Base career เสิร์ฟทีละออเดอร์); (2) Mod ส่ง catalog สูตรจริงผ่าน `/catalog`
+> และ `recipeId` คือ `Recipe.Id` จริงของเกม (ขับ recipe pool จากเกม ไม่ใช่
+> `recipes.json` placeholder) — เหลือแค่ยืนยันบรรทัด VERIFY ในเกมจริง
 
 ## โครงสร้าง
 
@@ -69,5 +70,6 @@ dotnet build mod/CookingSimDonationMod.csproj -c Release `
   แล้ว map กลับเป็น eventId ที่เก็บไว้ตอน `TryCreateOrder`
 - `GameStateChanged` — patch pause/resume และการเข้า/ออกเมนูหลัก
   **อย่าใช้ `Time.timeScale` เป็น timer** — ปล่อยให้ server ถือเวลา (สเปกข้อ 6)
-- `GetKitchenTokens` / `KitchenChanged` — อ่านอุปกรณ์/วัตถุดิบที่มี แล้ว map เป็น
-  token ชุดเดียวกับใน `recipes.json`
+- `GetRecipeCatalog` / `CatalogChanged` — ดึงสูตร Base Game จาก `FoodnetworkDish`
+  (หรือ `RecipesProvider`) map `Recipe.Id` + `RecipeDifficulty` + makeable ส่งให้
+  server ผ่าน `/catalog` (ขับ recipe pool จากเกม) — ดู VERIFY ใน internals doc

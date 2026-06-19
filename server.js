@@ -23,7 +23,7 @@ const STATE_PATH = process.env.DONATION_STATE || path.join(__dirname, "state.jso
 const config = loadConfig();
 const recipePool = loadRecipePool({
   disabled: config.recipePool.disabled,
-  kitchen: config.recipePool.kitchen,
+  difficultyOverrides: config.recipePool.difficultyOverrides,
   cooldownWindow: config.menuSelection.recentRecipeCooldown,
 });
 
@@ -655,7 +655,10 @@ const server = http.createServer(async function (req, res) {
     return;
   }
 
-  if (pathname === "/kitchen") {
+  // The Mod reports the game's live recipe catalog here: real Recipe.Ids with
+  // the difficulty bucket and current makeability. Replaces the placeholder
+  // recipes.json pool (see docs/mod-protocol.md).
+  if (pathname === "/catalog") {
     if (req.method !== "POST") {
       res.writeHead(405, { "Content-Type": "application/json; charset=utf-8", Allow: "POST" });
       res.end(JSON.stringify({ ok: false, error: "Method not allowed" }));
@@ -665,13 +668,17 @@ const server = http.createServer(async function (req, res) {
     try {
       const body = await readJsonBody(req);
 
-      // tokens: array of available equipment/ingredient tokens, or null for "all".
-      if (body.tokens !== null && !Array.isArray(body.tokens)) {
-        throw new Error("kitchen tokens must be an array or null");
+      if (!Array.isArray(body.recipes) || body.recipes.length === 0) {
+        throw new Error("catalog recipes must be a non-empty array");
+      }
+      for (const recipe of body.recipes) {
+        if (!recipe || typeof recipe.id !== "string" || typeof recipe.name !== "string") {
+          throw new Error("each catalog recipe needs a string id and name");
+        }
       }
 
-      recipePool.setKitchen(body.tokens);
-      sendJson(res, 200, { ok: true });
+      recipePool.setCatalog(body.recipes);
+      sendJson(res, 200, { ok: true, count: body.recipes.length });
     } catch (error) {
       sendJson(res, 400, { ok: false, error: error.message });
     }

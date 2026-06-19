@@ -1,15 +1,23 @@
 // Recipe pool with the selection filters from
 // docs/donation-game-rules.md section 8.
 //
-// A recipe is { id, name, difficulty, requires: [token...] }. Difficulty is
-// declared per recipe (never guessed from the name). The pool excludes:
+// A recipe is { id, name, difficulty, makeable }. `id` is the game's real
+// Recipe.Id once the Mod reports its catalog; `makeable` is reported by the
+// game (a recipe is makeable when it is unlocked and buildable in the current
+// kitchen). Difficulty is declared per recipe and never guessed from the name;
+// config.recipePool.difficultyOverrides can re-bucket any recipe id, so the
+// operator tunes grouping from real cook-time data (§8) without trusting the
+// game's own three-level difficulty blindly.
+//
+// The pool excludes:
 //   - disabled recipes (config.recipePool.disabled)
-//   - recipes not makeable in the current kitchen
+//   - recipes the game reports as not makeable
 //   - recipes already cooking, when other options exist
 //   - recipes used in the last N orders (cooldown), when other options exist
 //
-// Kitchen state is null until the Mod reports it; null means "treat all as
-// makeable" so the pipeline runs before the Mod exists.
+// Before the Mod connects, the pool is bootstrapped from recipes.json (a
+// placeholder catalog) where every recipe is treated as makeable, so the whole
+// pipeline runs without the game. setCatalog() then swaps in the real catalog.
 
 const fs = require("fs");
 const path = require("path");
@@ -28,34 +36,40 @@ function shuffle(items) {
 
 class RecipePool {
   constructor(recipes, options = {}) {
-    this.byDifficulty = { easy: [], normal: [], hard: [] };
-
-    for (const recipe of recipes) {
-      if (!DIFFICULTIES.includes(recipe.difficulty)) {
-        throw new Error(`Recipe ${recipe.id} has invalid difficulty: ${recipe.difficulty}`);
-      }
-      if (!Array.isArray(recipe.requires)) {
-        throw new Error(`Recipe ${recipe.id} must list requires`);
-      }
-      this.byDifficulty[recipe.difficulty].push(recipe);
-    }
-
     this.disabled = new Set(options.disabled || []);
     this.cooldownWindow = options.cooldownWindow ?? 5;
-    // null kitchen => everything is makeable (no Mod reporting yet).
-    this.kitchen = options.kitchen ? new Set(options.kitchen) : null;
+    this.difficultyOverrides = options.difficultyOverrides || {};
     this.recentIds = [];
+    this.setCatalog(recipes);
   }
 
-  setKitchen(tokens) {
-    this.kitchen = tokens ? new Set(tokens) : null;
+  // Replaces the entire recipe set — used both at boot (recipes.json) and every
+  // time the Mod reports the game's live catalog. The cooldown history is kept
+  // so re-reporting the catalog does not reset recent-dish avoidance.
+  setCatalog(recipes) {
+    this.byDifficulty = { easy: [], normal: [], hard: [] };
+    this.byId = new Map();
+
+    for (const recipe of recipes) {
+      const difficulty = this.difficultyOverrides[recipe.id] || recipe.difficulty;
+      if (!DIFFICULTIES.includes(difficulty)) {
+        throw new Error(`Recipe ${recipe.id} has invalid difficulty: ${difficulty}`);
+      }
+      // Absent makeable means "makeable" — the placeholder catalog and any
+      // dev caller that does not know kitchen state get an unrestricted pool.
+      const entry = {
+        id: recipe.id,
+        name: recipe.name,
+        difficulty,
+        makeable: recipe.makeable !== false,
+      };
+      this.byDifficulty[difficulty].push(entry);
+      this.byId.set(entry.id, entry);
+    }
   }
 
   isMakeable(recipe) {
-    if (!this.kitchen) {
-      return true;
-    }
-    return recipe.requires.every((token) => this.kitchen.has(token));
+    return recipe.makeable !== false;
   }
 
   // Enabled and makeable recipes in a difficulty group.

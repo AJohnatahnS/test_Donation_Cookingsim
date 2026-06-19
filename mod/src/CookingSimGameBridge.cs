@@ -21,7 +21,7 @@ namespace CookingSimDonationMod
         public event Action<string> OrderCompleted;
         public event Action<string> OrderFailed;
         public event Action<string> GameStateChanged;
-        public event Action KitchenChanged;
+        public event Action CatalogChanged;
 
         // game Recipe.Id -> donation eventId, set when we force an order.
         private readonly Dictionary<int, string> recipeToEvent = new Dictionary<int, string>();
@@ -65,12 +65,51 @@ namespace CookingSimDonationMod
             return true;
         }
 
-        public string[] GetKitchenTokens()
+        public CatalogEntry[] GetRecipeCatalog()
         {
-            // Base-game makeability is handled by only offering BaseGameRecipe
-            // recipes the game reports; no token mapping needed. Return null
-            // (unrestricted) until/unless finer filtering is wanted.
-            return null;
+            var fnm = FoodNetworkManager.Me;
+            if (fnm == null)
+            {
+                return null; // not in Food Network mode yet; keep server's pool
+            }
+
+            // The base-career dish list is the recipe universe (mismatch #2): the
+            // server drives its pool from these real Recipe.Ids instead of the
+            // placeholder recipes.json. VERIFY FoodnetworkDish is populated here
+            // and that BaseGameRecipe is the right "base game only" filter (§1/§8).
+            var catalog = new List<CatalogEntry>();
+            foreach (var recipe in fnm.FoodnetworkDish)
+            {
+                if (recipe == null || !recipe.BaseGameRecipe)
+                {
+                    continue;
+                }
+
+                catalog.Add(new CatalogEntry
+                {
+                    id = recipe.Id.ToString(),
+                    name = recipe.RecipeName, // VERIFY field name for display text
+                    difficulty = MapDifficulty(recipe.RecipeDifficulty),
+                    // Every dish in FoodnetworkDish is offerable in this kitchen;
+                    // server-side difficultyOverrides (§8) handle re-bucketing.
+                    makeable = true,
+                });
+            }
+
+            return catalog.Count > 0 ? catalog.ToArray() : null;
+        }
+
+        // Game's three-level difficulty -> our buckets. The server can still
+        // re-bucket any recipe id via config.recipePool.difficultyOverrides (§8).
+        private static string MapDifficulty(RecipeDifficulty difficulty)
+        {
+            switch (difficulty)
+            {
+                case RecipeDifficulty.Easy: return "easy";
+                case RecipeDifficulty.Medium: return "normal";
+                case RecipeDifficulty.Hard: return "hard";
+                default: return "normal";
+            }
         }
 
         public void Tick(float deltaTime)
@@ -100,7 +139,7 @@ namespace CookingSimDonationMod
         {
             string state = isMenu ? "menu" : paused ? "paused" : "playing";
             GameStateChanged?.Invoke(state);
-            KitchenChanged?.Invoke(); // kitchen may differ after a scene change
+            CatalogChanged?.Invoke(); // catalog may differ after a scene change
         }
     }
 }

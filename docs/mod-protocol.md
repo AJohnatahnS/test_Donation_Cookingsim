@@ -68,13 +68,24 @@ response: `{ "ok": true, "state": "COOKING" | "DISPATCHED" | "FAILED", ... }`
 - `paused` / `menu` → หยุด timer ทุกออเดอร์ (เก็บเวลาที่เหลือ) และพักการดึงคิว
 - `playing` → เดิน timer ต่อจากเวลาที่เหลือ และดึงคิวต่อ
 
-### `POST /kitchen` (ทางเลือก)
-แจ้งอุปกรณ์/วัตถุดิบที่มีในครัวปัจจุบัน เพื่อให้ server กรองสูตรที่ทำไม่ได้ออก
-(§8) ส่ง `null` หมายถึงทำได้ทุกสูตร
+### `POST /catalog`
+แจ้ง catalog สูตรจริงของเกม (`Recipe.Id` ของ Base Game) ให้ server ใช้ขับ recipe
+pool แทน `recipes.json` placeholder — Mod ส่งตอนเริ่ม และส่งซ้ำเมื่อ catalog
+เปลี่ยน (ปลดล็อก/เปลี่ยนครัว) `makeable` มาจากเกม (unlocked + ทำได้ในครัวปัจจุบัน)
+ส่วนการจัดกลุ่มความยากใช้ `difficulty` เป็นค่าตั้งต้น แล้ว server re-bucket ได้ด้วย
+`config.recipePool.difficultyOverrides` ตาม §8
 
 ```json
-{ "tokens": ["stove", "pan", "oven", "eggs", "tomato"] }
+{
+  "recipes": [
+    { "id": "101", "name": "Fried Eggs", "difficulty": "easy", "makeable": true },
+    { "id": "210", "name": "Beef Wellington", "difficulty": "hard", "makeable": false }
+  ]
+}
 ```
+
+ตอบกลับ `{ "ok": true, "count": <n> }` — array ต้องไม่ว่าง และทุกสูตรต้องมี `id`
+กับ `name` เป็น string
 
 ## หมายเหตุการ implement ฝั่ง Unity
 

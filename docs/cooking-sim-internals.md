@@ -60,17 +60,19 @@
 | ออเดอร์สำเร็จ/หมดเวลา/ยกเลิก | Postfix `OrderEnd` / `OnTimeEnd` / `OrderCancel` |
 | สถานะเกม | `GameManager.GameStateChanged` + `.Paused` / `.GameState` |
 
-## ⚠️ ความไม่ตรงกันที่ต้องตัดสินใจ
+## ความไม่ตรงกันกับเกมจริง
 
-1. **เกม Base career เสิร์ฟทีละ 1 ออเดอร์** (`currentRecipe` เดี่ยว + `OrderLoop`)
-   แต่โปรโตคอลออกแบบรองรับ 3 ออเดอร์พร้อมกัน
-   → **แนะนำตั้ง `config.queue.maxConcurrentOrders = 1`** สำหรับโหมดนี้ (server รองรับอยู่แล้ว)
-   ออเดอร์ที่เหลือรอในคิวตามปกติ
+1. ✅ **แก้แล้ว — เกม Base career เสิร์ฟทีละ 1 ออเดอร์** (`currentRecipe` เดี่ยว +
+   `OrderLoop`) แต่โปรโตคอลออกแบบรองรับหลายออเดอร์
+   → ตั้ง `config.queue.maxConcurrentOrders = 1` เป็น default แล้ว (1 ≤ เพดาน 3
+   ของ §7 จึงยังผ่าน acceptance) ออเดอร์ที่เหลือรอในคิวตามปกติ
 
-2. **ที่มาของรายการสูตร** — ควรดึงสูตรจริงจากเกม (`RecipesProvider.Recipes` ที่
-   `BaseGameRecipe` + difficulty) แล้วให้ Mod ส่ง catalog ไปให้ server แทน `recipes.json`
-   ที่เขียนมือ และเลิกใช้โมเดล "kitchen tokens" หันไปใช้ `IsRecipeUnlocked` แทน
-   → เป็นงานปรับทั้งสองฝั่ง (เพิ่ม endpoint รับ catalog) ตัดสินใจก่อนลงมือ
+2. ✅ **แก้แล้ว — ที่มาของรายการสูตร** — Mod ส่ง catalog สูตรจริงของเกม
+   (`FoodnetworkDish`/`RecipesProvider.Recipes` ที่ `BaseGameRecipe` + difficulty +
+   makeable) ผ่าน `POST /catalog` ให้ server ขับ recipe pool แทน `recipes.json`
+   placeholder เลิกใช้โมเดล "kitchen tokens" — `makeable` มาจากเกมตรงๆ และ
+   `config.recipePool.difficultyOverrides` ให้ operator re-bucket ความยากตาม §8
+   (Node + protocol + bridge อัปแล้ว เหลือยืนยันบรรทัด VERIFY ในเกม)
 
 3. **โหมด Food Network มี loop/เวลาของตัวเอง** — ต้องยืนยันในเกมว่า `SetDebugRecipesOrder`
    บังคับออเดอร์ถัดไปได้ตามจังหวะที่เราต้องการจริง (`ตรวจในเกม`)

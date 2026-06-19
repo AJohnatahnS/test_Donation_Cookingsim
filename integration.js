@@ -355,6 +355,41 @@ async function persistenceScenario() {
   }
 }
 
+// S10: the Mod-reported catalog drives recipe selection. We report a catalog
+// where only one easy recipe is makeable, then a Standard (random easy) order
+// must dispatch exactly that recipe — proving real Recipe.Ids and the makeable
+// flag replace the placeholder pool.
+async function catalogScenario() {
+  await withServer(async () => {
+    for (let round = 1; round <= ROUNDS; round++) {
+      const onlyId = `only-easy-${round}`;
+      const setCat = await post("/catalog", {
+        recipes: [
+          { id: onlyId, name: `OnlyEasy${round}`, difficulty: "easy", makeable: true },
+          { id: `gone-${round}`, name: `Gone${round}`, difficulty: "easy", makeable: false },
+          { id: `hard-${round}`, name: `Hard${round}`, difficulty: "hard", makeable: true },
+        ],
+      });
+      check(setCat.json.ok === true && setCat.json.count === 3, `cat ${round}: catalog accepted`);
+
+      const id = nextId("cat");
+      await post("/event", {
+        platform: "youtube",
+        eventId: id,
+        donor: { id: nextId("u"), name: `C${round}` },
+        amountThb: 20, // Standard: random easy, auto-dispatched
+      });
+
+      const pending = await waitForPending((list) => list.some((o) => o.eventId === id), 3000);
+      check(pending !== null, `cat ${round}: standard order dispatched`);
+      const order = (pending || []).find((o) => o.eventId === id);
+      check(order && order.recipeId === onlyId, `cat ${round}: dispatched the only makeable easy recipe`);
+
+      await post("/finish", { eventId: id, outcome: "COMPLETED" });
+    }
+  });
+}
+
 async function waitForPending(predicate, timeoutMs) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -388,6 +423,9 @@ async function main() {
 
   console.log("S9     crash recovery (dedup + queued grants survive restart)");
   await persistenceScenario();
+
+  console.log("S10    catalog drives recipe selection (real ids + makeable)");
+  await catalogScenario();
 
   // Clean up the log the spawned servers wrote.
   const logPath = path.join(__dirname, "order-log.json");

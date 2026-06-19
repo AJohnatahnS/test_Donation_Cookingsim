@@ -52,8 +52,17 @@ namespace CookingSimDonationMod
     }
 
     [Serializable]
-    public class KitchenRequest
+    public class CatalogEntry
     {
-        public string[] tokens;
+        public string id;          // game Recipe.Id as a string
+        public string name;
+        public string difficulty;  // "easy" | "normal" | "hard"
+        public bool makeable;      // unlocked and buildable in the current kitchen
+    }
+
+    [Serializable]
+    public class CatalogRequest
+    {
+        public CatalogEntry[] recipes;
     }
 }
