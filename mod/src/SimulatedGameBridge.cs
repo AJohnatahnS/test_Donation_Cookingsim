@@ -12,7 +12,7 @@ namespace CookingSimDonationMod
         public event Action<string> OrderCompleted;
         public event Action<string> OrderFailed;
         public event Action<string> GameStateChanged;
-        public event Action KitchenChanged;
+        public event Action CatalogChanged;
 
         private readonly float cookSeconds;
         private readonly Dictionary<string, float> cooking = new Dictionary<string, float>();
@@ -29,9 +29,10 @@ namespace CookingSimDonationMod
             return true;
         }
 
-        public string[] GetKitchenTokens()
+        public CatalogEntry[] GetRecipeCatalog()
         {
-            // null => server treats the kitchen as unrestricted.
+            // null => the server keeps its placeholder recipes.json pool, which
+            // is enough to exercise the HTTP integration without the game.
             return null;
         }
 
@@ -73,7 +74,7 @@ namespace CookingSimDonationMod
         {
             OrderFailed?.Invoke(null);
             GameStateChanged?.Invoke(null);
-            KitchenChanged?.Invoke();
+            CatalogChanged?.Invoke();
         }
     }
 }

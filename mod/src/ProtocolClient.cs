@@ -57,10 +57,10 @@ namespace CookingSimDonationMod
             return PostJson<ConfirmResponse>("/game", body, null);
         }
 
-        public IEnumerator Kitchen(string[] tokens)
+        public IEnumerator Catalog(CatalogEntry[] recipes)
         {
-            string body = JsonUtility.ToJson(new KitchenRequest { tokens = tokens });
-            return PostJson<ConfirmResponse>("/kitchen", body, null);
+            string body = JsonUtility.ToJson(new CatalogRequest { recipes = recipes });
+            return PostJson<ConfirmResponse>("/catalog", body, null);
         }
 
         private IEnumerator PostJson<T>(string path, string json, Action<T> onResult)

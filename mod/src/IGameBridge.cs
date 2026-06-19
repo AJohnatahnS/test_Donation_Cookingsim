@@ -12,10 +12,10 @@ namespace CookingSimDonationMod
         // the server will then regenerate a different recipe once (section 5).
         bool TryCreateOrder(PendingOrder order);
 
-        // Equipment/ingredient tokens available in the current kitchen, matching
-        // the recipes' `requires` tokens. Return null to mean "everything is
-        // makeable" (the server treats a null kitchen as unrestricted).
-        string[] GetKitchenTokens();
+        // The game's live recipe catalog: real Recipe.Ids with their difficulty
+        // bucket and current makeability (unlocked + buildable in this kitchen).
+        // Return null to skip reporting (the server keeps its current pool).
+        CatalogEntry[] GetRecipeCatalog();
 
         // Called every frame on the main thread; bridges may poll game state
         // here and raise the events below.
@@ -31,7 +31,8 @@ namespace CookingSimDonationMod
         // Argument is one of "playing" | "paused" | "menu".
         event Action<string> GameStateChanged;
 
-        // Raised when the available kitchen equipment/ingredients change.
-        event Action KitchenChanged;
+        // Raised when the recipe catalog changes (unlock/kitchen change), so the
+        // mod re-reports it to the server.
+        event Action CatalogChanged;
     }
 }

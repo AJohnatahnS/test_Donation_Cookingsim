@@ -7,7 +7,7 @@ namespace CookingSimDonationMod
     // Drives the donation loop on the Unity main thread:
     //   * polls GET /pending and creates orders through the bridge, then POSTs
     //     /confirm with the result
-    //   * forwards bridge events (completed/failed/state/kitchen) to the server
+    //   * forwards bridge events (completed/failed/state/catalog) to the server
     public class DonationRuntime : MonoBehaviour
     {
         private ProtocolClient client;
@@ -27,9 +27,9 @@ namespace CookingSimDonationMod
             bridge.OrderCompleted += eventId => StartCoroutine(client.Finish(eventId, "COMPLETED"));
             bridge.OrderFailed += eventId => StartCoroutine(client.Finish(eventId, "FAILED"));
             bridge.GameStateChanged += state => StartCoroutine(client.Game(state));
-            bridge.KitchenChanged += PushKitchen;
+            bridge.CatalogChanged += PushCatalog;
 
-            PushKitchen();
+            PushCatalog();
             StartCoroutine(PollLoop());
         }
 
@@ -71,13 +71,13 @@ namespace CookingSimDonationMod
             }
         }
 
-        private void PushKitchen()
+        private void PushCatalog()
         {
-            string[] tokens = bridge.GetKitchenTokens();
-            // Only report a restricted kitchen; null means "leave unrestricted".
-            if (tokens != null)
+            CatalogEntry[] recipes = bridge.GetRecipeCatalog();
+            // null means "nothing to report yet"; the server keeps its pool.
+            if (recipes != null && recipes.Length > 0)
             {
-                StartCoroutine(client.Kitchen(tokens));
+                StartCoroutine(client.Catalog(recipes));
             }
         }
     }

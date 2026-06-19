@@ -7,18 +7,23 @@
 
 | ส่วน | สถานะ |
 |---|---|
-| ชั้นโปรโตคอล (poll `/pending`, `/confirm`, `/finish`, `/game`, `/kitchen`) | ✅ เขียนครบ |
+| ชั้นโปรโตคอล (poll `/pending`, `/confirm`, `/finish`, `/game`, `/catalog`) | ✅ เขียนครบ |
 | `SimulatedGameBridge` (ทดสอบกับ server โดยไม่ต้องมีเกม) | ✅ ใช้งานได้ |
-| `CookingSimGameBridge` + `GameHooks` (ต่อเกมจริง) | 🟡 draft ต่อ API จริงแล้ว — **ยังไม่ build/รันในเกม** |
+| `CookingSimGameBridge` + `GameHooks` (ต่อเกมจริง) | ✅ **build + โหลดในเกมจริงสำเร็จ** (Harmony patch ครบ) |
+| พฤติกรรมตอนเล่น Food Network จริง | 🟡 เหลือยืนยัน 4 ข้อ (ดู internals "ผลการ verify") |
 
-ชั้นโปรโตคอลเสร็จสมบูรณ์ ส่วน `CookingSimGameBridge.cs` + `GameHooks.cs` ตอนนี้
-อ้างชื่อคลาส/เมธอดจริงของเกม (`FoodNetworkManager`, `GameManager`, `Recipe`,
-`RecipesProvider`) ที่อ่านมาจาก `Assembly-CSharp.dll` — ดูแผนที่ภายในและจุดที่ต้อง
-ยืนยันในเกมที่ [../docs/cooking-sim-internals.md](../docs/cooking-sim-internals.md)
+✅ **2026-06-19**: คอมไพล์กับ `Assembly-CSharp.dll` จริง (0 warning/error) และโหลดผ่าน
+BepInEx 5.4.23.5 ในเกมจริง (Unity 2022.3) ด้วย `UseSimulatedBridge=false` —
+`Harmony.PatchAll()` ผูก patch ครบทุกจุดโดยไม่มี exception. API จริงที่ปรับจาก draft:
+`OrderEnd`/`OrderCancel` เป็น private (patch ด้วย string), `GameManager.Paused`/`DuringGame`
+เป็น static (สรุปสถานะจาก static ล้วน), ใช้ `Recipe.CoreId.Id` (ไม่ใช่ `Id` ที่ deprecated),
+`RecipeDifficulty` อยู่ namespace `Recipes`, `JsonUtility` ต้องอ้างอิง `JSONSerializeModule`.
+ดูรายละเอียด + 4 ข้อที่เหลือยืนยันที่ [../docs/cooking-sim-internals.md](../docs/cooking-sim-internals.md)
 
-> ⚠️ ก่อนใช้ต้องตัดสินใจ 2 เรื่อง (ดู internals doc): (1) ตั้ง
-> `config.queue.maxConcurrentOrders = 1` เพราะ Base career เสิร์ฟทีละออเดอร์;
-> (2) ให้ server ส่ง `recipeId` เป็น `Recipe.Id` จริงของเกม (ขับ recipe pool จากเกม)
+> ✅ มิสแมตช์ 2 เรื่องกับเกมจริงแก้แล้ว: (1) `config.queue.maxConcurrentOrders = 1`
+> (Base career เสิร์ฟทีละออเดอร์); (2) Mod ส่ง catalog สูตรจริงผ่าน `/catalog`
+> และ `recipeId` คือ `Recipe.Id` จริงของเกม (ขับ recipe pool จากเกม ไม่ใช่
+> `recipes.json` placeholder) — เหลือแค่ยืนยันบรรทัด VERIFY ในเกมจริง
 
 ## โครงสร้าง
 
@@ -35,15 +40,22 @@ src/
 
 ## Build
 
-ต้องมี .NET SDK และชี้ไปที่โฟลเดอร์ Managed ของเกม:
+ต้องมี .NET SDK + BepInEx 5 (x64, Mono) ติดตั้งในโฟลเดอร์เกม csproj อ้างอิง DLL
+จากตัวที่ติดตั้ง (เกม + `BepInEx\core`) ไม่พึ่ง NuGet — และตั้ง path เครื่องนี้
+(`D:\Game\steamapps\common\CookingSimulator`) เป็น default:
 
 ```powershell
-dotnet build mod/CookingSimDonationMod.csproj -c Release `
-  -p:GameManagedDir="C:\Program Files (x86)\Steam\steamapps\common\Cooking Simulator\Cooking Simulator_Data\Managed"
+dotnet build mod/CookingSimDonationMod.csproj -c Release
+# ย้ายเครื่อง/เกมที่อื่น override ด้วย:
+#   -p:GameDir="C:\...\steamapps\common\CookingSimulator"
 ```
 
-ได้ `CookingSimDonationMod.dll` แล้วคัดลอกไปที่ `BepInEx\plugins\` ของเกม
-(ต้องติดตั้ง [BepInEx 5 (x64, Mono)](https://github.com/BepInEx/BepInEx/releases) ก่อน)
+ได้ `bin\Release\CookingSimDonationMod.dll` แล้วคัดลอกไป `BepInEx\plugins\`
+(ติดตั้ง [BepInEx 5 (x64, Mono)](https://github.com/BepInEx/BepInEx/releases) ก่อน — ทดสอบกับ 5.4.23.5)
+
+> `mod/nuget.config` ล้าง package sources + fallback folders ไว้ เพราะ machine-wide
+> NuGet.Config ของเครื่องนี้ชี้ fallback folder ที่หายไป (`D:\program\VS\SS\NuGetPackages`)
+> ซึ่งทำให้ `ResolvePackageAssets` crash ตอน build
 
 ## ทดสอบโดยไม่ต้องมีเกม
 
@@ -69,5 +81,6 @@ dotnet build mod/CookingSimDonationMod.csproj -c Release `
   แล้ว map กลับเป็น eventId ที่เก็บไว้ตอน `TryCreateOrder`
 - `GameStateChanged` — patch pause/resume และการเข้า/ออกเมนูหลัก
   **อย่าใช้ `Time.timeScale` เป็น timer** — ปล่อยให้ server ถือเวลา (สเปกข้อ 6)
-- `GetKitchenTokens` / `KitchenChanged` — อ่านอุปกรณ์/วัตถุดิบที่มี แล้ว map เป็น
-  token ชุดเดียวกับใน `recipes.json`
+- `GetRecipeCatalog` / `CatalogChanged` — ดึงสูตร Base Game จาก `FoodnetworkDish`
+  (หรือ `RecipesProvider`) map `Recipe.Id` + `RecipeDifficulty` + makeable ส่งให้
+  server ผ่าน `/catalog` (ขับ recipe pool จากเกม) — ดู VERIFY ใน internals doc

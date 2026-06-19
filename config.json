@@ -95,12 +95,12 @@
 
   "recipePool": {
     "disabled": [],
-    "kitchen": null
+    "difficultyOverrides": {}
   },
 
   "queue": {
     "maxQueued": 20,
-    "maxConcurrentOrders": 3,
+    "maxConcurrentOrders": 1,
     "maxConcurrentBoss": 1
   },
 

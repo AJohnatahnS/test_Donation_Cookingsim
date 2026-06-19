@@ -2,12 +2,18 @@ const assert = require("assert");
 const { RecipePool, loadRecipePool } = require("./recipes");
 
 const SAMPLE = [
-  { id: "a", name: "A", difficulty: "easy", requires: ["stove"] },
-  { id: "b", name: "B", difficulty: "easy", requires: ["stove"] },
-  { id: "c", name: "C", difficulty: "easy", requires: ["oven"] },
-  { id: "d", name: "D", difficulty: "easy", requires: ["stove"] },
-  { id: "x", name: "X", difficulty: "hard", requires: ["stove"] },
+  { id: "a", name: "A", difficulty: "easy" },
+  { id: "b", name: "B", difficulty: "easy" },
+  { id: "c", name: "C", difficulty: "easy" },
+  { id: "d", name: "D", difficulty: "easy" },
+  { id: "x", name: "X", difficulty: "hard" },
 ];
+
+// Builds a sample where the listed ids are not makeable.
+function withUnmakeable(unmakeableIds) {
+  const set = new Set(unmakeableIds);
+  return SAMPLE.map((r) => ({ ...r, makeable: !set.has(r.id) }));
+}
 
 function ids(recipes) {
   return recipes.map((r) => r.id).sort();
@@ -28,14 +34,36 @@ function ids(recipes) {
   console.log("ok  disabled recipes excluded");
 })();
 
-// Kitchen filtering: only recipes whose requires are all available.
-(function kitchen() {
-  const pool = new RecipePool(SAMPLE, { kitchen: ["stove"] });
-  // c needs an oven -> excluded.
+// config.recipePool.difficultyOverrides re-buckets a recipe by id (§8), and is
+// reapplied when a fresh catalog arrives.
+(function difficultyOverrides() {
+  const pool = new RecipePool(SAMPLE, { difficultyOverrides: { a: "hard" } });
+  assert.deepStrictEqual(ids(pool.baseCandidates("easy")), ["b", "c", "d"]);
+  assert.deepStrictEqual(ids(pool.baseCandidates("hard")), ["a", "x"]);
+  pool.setCatalog(SAMPLE); // re-report: override still applies
+  assert.deepStrictEqual(ids(pool.baseCandidates("hard")), ["a", "x"]);
+  console.log("ok  difficultyOverrides re-bucket by id and survive re-catalog");
+})();
+
+// Makeability comes from the catalog's makeable flag (game-reported).
+(function makeable() {
+  const pool = new RecipePool(withUnmakeable(["c"]));
   assert.deepStrictEqual(ids(pool.baseCandidates("easy")), ["a", "b", "d"]);
-  pool.setKitchen(null);
+  // A new catalog with c makeable again restores it.
+  pool.setCatalog(SAMPLE);
   assert.deepStrictEqual(ids(pool.baseCandidates("easy")), ["a", "b", "c", "d"]);
-  console.log("ok  kitchen availability filters candidates");
+  console.log("ok  makeable flag filters candidates and tracks the catalog");
+})();
+
+// setCatalog preserves the cooldown history (re-reporting doesn't reset it).
+(function catalogKeepsCooldown() {
+  const pool = new RecipePool(SAMPLE, { cooldownWindow: 5 });
+  pool.recordPicked("a");
+  pool.setCatalog(SAMPLE);
+  for (let i = 0; i < 20; i++) {
+    assert.ok(pool.chooseOne("easy").id !== "a", "recent dish still avoided after re-catalog");
+  }
+  console.log("ok  setCatalog keeps cooldown history");
 })();
 
 // Currently-cooking recipes are avoided while enough alternatives remain.
@@ -66,7 +94,7 @@ function ids(recipes) {
 
 // ...but recent dishes still appear when they're the only options left.
 (function cooldownFallback() {
-  const pool = new RecipePool(SAMPLE, { kitchen: ["stove"], cooldownWindow: 5 });
+  const pool = new RecipePool(withUnmakeable(["c"]), { cooldownWindow: 5 });
   // makeable easy = a, b, d. Mark all recent.
   pool.recordPicked("a");
   pool.recordPicked("b");
@@ -81,13 +109,13 @@ function ids(recipes) {
   const pool = new RecipePool(SAMPLE);
   assert.strictEqual(pool.choose("easy", 3).length, 3);
   assert.strictEqual(new Set(pool.choose("easy", 3).map((r) => r.id)).size, 3, "distinct");
-  pool.setKitchen(["nothing"]);
+  pool.setCatalog(SAMPLE.map((r) => ({ ...r, makeable: false })));
   assert.deepStrictEqual(pool.choose("easy", 3), [], "no makeable recipe -> empty");
   assert.strictEqual(pool.chooseOne("easy"), null);
   console.log("ok  choose is bounded, distinct, and empty when unmakeable");
 })();
 
-// The real recipes.json loads and is grouped.
+// The placeholder recipes.json loads and is grouped.
 (function loadsReal() {
   const pool = loadRecipePool();
   assert.ok(pool.baseCandidates("easy").length >= 3);
