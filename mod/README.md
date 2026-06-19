@@ -31,7 +31,29 @@ src/
   IGameBridge.cs            seam ระหว่างโปรโตคอลกับเกม
   SimulatedGameBridge.cs    เกมจำลองสำหรับทดสอบ
   CookingSimGameBridge.cs   ตัวจริง (stub พร้อมจุดต่อ)
+  StreamModeController.cs   โหมด Stream: กดปุ่มเดียวปลดล็อก skill/perk/สูตรทั้งหมด
 ```
+
+## โหมด Stream (ปลดล็อกทั้งหมด)
+
+ฟีเจอร์แยกจากระบบโดเนต — กดปุ่มเดียวเพื่อปลดล็อก **ทุก ability, ทุก perk/skill,
+และทุกสูตรอาหาร** ใน base career ทำงานไม่ว่าจะตั้ง `Game.UseSimulatedBridge` เป็น
+อะไร และไม่ต้องมี donation server รัน
+
+| config (section `StreamMode`) | ค่าเริ่มต้น | ความหมาย |
+|---|---|---|
+| `Enabled` | `true` | เปิด/ปิด hotkey |
+| `Hotkey` | `F8` | ปุ่มที่กดเพื่อปลดล็อก (Unity `KeyCode`) |
+
+กดในเกมตอนอยู่ในครัว → `StreamModeController` เรียก
+`Player.Me.UnlockAllAbilitiesForSchool()` + `SkillSystem.Me.UnlockAllPerks()` /
+`UpgradeAllSkills()` + วน `RecipesManager.Me.Recipes` เรียก `UnlockRecipe(...)`
+(ดู [../docs/cooking-sim-internals.md](../docs/cooking-sim-internals.md) หัวข้อ
+"Stream mode unlock-all") เป็น idempotent กดซ้ำได้ ปลอดภัย ถ้า singleton ยังไม่มี
+(เช่นอยู่เมนูหลัก) จะ log เตือนแล้วข้าม ไม่ crash
+
+> 🟡 อ้าง API จริงจาก DLL (สมาชิกทั้งหมด public) แต่ **ยังไม่ได้ verify ในเกม** —
+> ต้องยืนยันว่าปุ่มปลดล็อกครบจริงและ UI สะท้อนผลตอน gameplay จริง
 
 ## Build
 

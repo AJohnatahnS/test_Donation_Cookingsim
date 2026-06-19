@@ -8,16 +8,27 @@
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <!-- BepInEx/Unity assemblies are not redistributable; never publish them. -->
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- Unity 2022.3 (Mono) — modern UnityWebRequest.Result, InputLegacyModule, etc. -->
+    <DefineConstants>$(DefineConstants);UNITY_2020_1_OR_NEWER</DefineConstants>
 
-    <!-- Point this at the game's Managed folder, e.g.
-         C:\Program Files (x86)\Steam\steamapps\common\Cooking Simulator\Cooking Simulator_Data\Managed
-         Override on the command line: dotnet build -p:GameManagedDir="..." -->
-    <GameManagedDir Condition="'$(GameManagedDir)' == ''">PATH\TO\Cooking Simulator_Data\Managed</GameManagedDir>
+    <!-- This machine's Cooking Simulator install. Override on the command line:
+         dotnet build -p:GameDir="...\CookingSimulator" -->
+    <GameDir Condition="'$(GameDir)' == ''">D:\Game\steamapps\common\CookingSimulator</GameDir>
+    <GameManagedDir Condition="'$(GameManagedDir)' == ''">$(GameDir)\CookingSim_Data\Managed</GameManagedDir>
+    <BepInExCoreDir Condition="'$(BepInExCoreDir)' == ''">$(GameDir)\BepInEx\core</BepInExCoreDir>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- BepInEx 5 (Mono) + HarmonyX come from NuGet for compile-time references. -->
-    <PackageReference Include="BepInEx.Core" Version="5.4.21" />
+    <!-- BepInEx 5 (Mono) + Harmony from the local install (compile reference only).
+         Referencing the local DLLs avoids any NuGet restore on this machine. -->
+    <Reference Include="BepInEx">
+      <HintPath>$(BepInExCoreDir)\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BepInExCoreDir)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
@@ -34,7 +45,16 @@
       <HintPath>$(GameManagedDir)\UnityEngine.UnityWebRequestModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <!-- Needed once CookingSimGameBridge is wired to the game's own types. -->
+    <!-- JsonUtility lives here (not CoreModule). -->
+    <Reference Include="UnityEngine.JSONSerializeModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.JSONSerializeModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Input.GetKeyDown / KeyCode (Stream-mode hotkey) live here in Unity 2022. -->
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Assembly-CSharp">
       <HintPath>$(GameManagedDir)\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>

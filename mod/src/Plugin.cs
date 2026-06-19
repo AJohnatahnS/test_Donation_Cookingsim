@@ -46,6 +46,11 @@ namespace CookingSimDonationMod
             host.hideFlags = HideFlags.HideAndDontSave;
             host.AddComponent<DonationRuntime>().Init(new ProtocolClient(baseUrl), bridge, pollMs);
 
+            // Stream mode: hotkey-driven "unlock all skills & recipes". Independent
+            // of the donation pipeline and of UseSimulatedBridge — it only touches
+            // the game when the real game singletons exist.
+            host.AddComponent<StreamModeController>().Configure(Config);
+
             Log.LogInfo($"{Name} {Version} loaded — server {baseUrl}, " +
                         (useSimulated ? "simulated bridge" : "Cooking Simulator bridge"));
         }

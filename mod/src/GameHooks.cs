@@ -8,8 +8,8 @@ namespace CookingSimDonationMod
     // game's Assembly-CSharp.dll — see docs/cooking-sim-internals.md.
     //
     // The patches only RAISE static relay events; CookingSimGameBridge maps them
-    // back to donation eventIds. Targets/signatures are taken from the DLL but
-    // NOT yet verified in-game (marked VERIFY).
+    // back to donation eventIds. Signatures verified against the installed DLL;
+    // in-game SEMANTICS still marked VERIFY.
     internal static class GameHooks
     {
         public static event Action<int> OrderEnded;          // Recipe.Id
@@ -21,44 +21,47 @@ namespace CookingSimDonationMod
         internal static void RaiseGameState(bool paused, bool isMenu) => GameStateChanged?.Invoke(paused, isMenu);
     }
 
-    // FoodNetworkManager.OrderEnd(Recipe) — order completed.
-    [HarmonyPatch(typeof(FoodNetworkManager), nameof(FoodNetworkManager.OrderEnd))]
+    // FoodNetworkManager.OrderEnd(Recipe) — order completed. The method is PRIVATE,
+    // so patch by string name; Harmony injects the argument by its real name `recipe`.
+    [HarmonyPatch(typeof(FoodNetworkManager), "OrderEnd")]
     internal static class Patch_OrderEnd
     {
-        // __0 = the Recipe argument. VERIFY the param order in-game.
-        static void Postfix(Recipe __0)
+        static void Postfix(Recipe recipe)
         {
-            if (__0 != null) GameHooks.RaiseOrderEnded(__0.Id);
+            if (recipe != null) GameHooks.RaiseOrderEnded(recipe.Id);
         }
     }
 
-    // FoodNetworkManager.OrderCancel(Recipe) — order abandoned/failed.
-    [HarmonyPatch(typeof(FoodNetworkManager), nameof(FoodNetworkManager.OrderCancel))]
+    // FoodNetworkManager.OrderCancel(Recipe) — order abandoned/failed (also private).
+    [HarmonyPatch(typeof(FoodNetworkManager), "OrderCancel")]
     internal static class Patch_OrderCancel
     {
-        static void Postfix(Recipe __0)
+        static void Postfix(Recipe recipe)
         {
-            if (__0 != null) GameHooks.RaiseOrderFailed(__0.Id);
+            if (recipe != null) GameHooks.RaiseOrderFailed(recipe.Id);
         }
     }
 
-    // GameManager.set_Paused(bool) — pause/resume.
+    // GameManager.Paused and DuringGame are STATIC properties — there is no
+    // GameStateChanged event nor instance singleton to read here. Patch their
+    // static setters and read the statics back. isMenu is derived as !DuringGame
+    // (GameManager.IsMenu is instance-only and unusable from a static-set patch).
     [HarmonyPatch(typeof(GameManager), "set_Paused")]
     internal static class Patch_SetPaused
     {
-        static void Postfix(GameManager __instance)
+        static void Postfix()
         {
-            GameHooks.RaiseGameState(__instance.Paused, __instance.IsMenu);
+            GameHooks.RaiseGameState(GameManager.Paused, !GameManager.DuringGame);
         }
     }
 
-    // GameManager.set_GameState(GameState) — entering/leaving menu, mode changes.
-    [HarmonyPatch(typeof(GameManager), "set_GameState")]
-    internal static class Patch_SetGameState
+    // set_DuringGame fires on entering/leaving gameplay (menu transitions).
+    [HarmonyPatch(typeof(GameManager), "set_DuringGame")]
+    internal static class Patch_SetDuringGame
     {
-        static void Postfix(GameManager __instance)
+        static void Postfix()
         {
-            GameHooks.RaiseGameState(__instance.Paused, __instance.IsMenu);
+            GameHooks.RaiseGameState(GameManager.Paused, !GameManager.DuringGame);
         }
     }
 }

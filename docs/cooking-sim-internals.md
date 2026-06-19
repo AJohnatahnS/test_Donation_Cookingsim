@@ -60,6 +60,38 @@
 | ออเดอร์สำเร็จ/หมดเวลา/ยกเลิก | Postfix `OrderEnd` / `OnTimeEnd` / `OrderCancel` |
 | สถานะเกม | `GameManager.GameStateChanged` + `.Paused` / `.GameState` |
 
+## Stream mode unlock-all (ปลดล็อกทั้งหมดด้วยปุ่มเดียว)
+
+ใช้โดย [../mod/src/StreamModeController.cs](../mod/src/StreamModeController.cs)
+ทุกสมาชิก **public** (ตรวจจาก DLL จริงด้วย Mono.Cecil) แต่พฤติกรรมจริง `ตรวจในเกม`
+
+### Abilities (ทักษะผู้เล่น)
+- `Player` (`base WorkStand`) — **`public static Player Me`** (เป็น field ไม่ใช่ property)
+- **`void Player.UnlockAllAbilitiesForSchool()`** — IL: ตั้ง `specificAbilities` =
+  `Enum.GetValues(typeof(PlayerActionAbility))` ทั้งหมด (เกมเองเรียกผ่าน
+  `CS.CookingSchool.CSTSUnlockAllSkills.Apply()`)
+- คู่กัน: `LockAllAbilitiesForSchool()`, `UnlockAbilityForSchool`, `HasAbilityForSchool`
+
+### Perk / Skill tree
+- `SkillSystem : WIUtils.TemporalSingleton<SkillSystem>` → accessor **`SkillSystem.Me`**
+- **`void UnlockAllPerks()`**, **`void UpgradeAllSkills()`** (max ทุก skill)
+- มี `StandardSkillSystem : SkillSystem` (โหมด base) + ตัวของ DLC แยก
+  (`Pizza.PizzaSkillSystem`, `BBQ.BBQSkillSystem`, `Sushi.SushiSkillSystem`, ฯลฯ)
+- เกี่ยวข้อง: `ResetAllSkills()`, `ResetAllPerks()`, `GetAllUnlockedSkills()`
+
+### Recipes (ปลดล็อกทุกสูตร)
+- `RecipesManager : WIUtils.TemporalSingleton<RecipesManager>` → **`RecipesManager.Me`**
+- **`List<Recipe> Recipes`** = แคตตาล็อกเต็ม (backing field `<Recipes>k__BackingField`)
+- **`bool UnlockRecipe(Recipe r, bool payCP, bool notifyProducts, bool notifyRecipe)`**
+  — เพิ่มเข้า `knownRecipes`/`availableRecipes`, ลบจาก `lockedRecipes`, ปลดล็อก
+  products ที่ต้องใช้ด้วย; ข้ามถ้ารู้สูตรแล้ว (idempotent) → เรียก
+  `UnlockRecipe(r, false, false, false)` = ฟรี + เงียบ
+- (อีกทาง: `RecipesProvider.UnlockRecipe(ID, bool payCP)` แต่ provider ไม่มี accessor
+  สาธารณะที่หาเจอ — ใช้ `RecipesManager.Me` ที่เป็น singleton ชัดเจนกว่า)
+
+> ⚠️ `UnlockRecipe`/skill state อาจถูกเขียนลงเซฟถ้าผู้เล่นเซฟเกมต่อ — เป็น runtime
+> unlock ไม่ได้บังคับเซฟเอง แต่ถ้าต้องการ "ไม่แตะเซฟถาวร" ต้องระวังตอนกดในเซฟจริง
+
 ## ⚠️ ความไม่ตรงกันที่ต้องตัดสินใจ
 
 1. **เกม Base career เสิร์ฟทีละ 1 ออเดอร์** (`currentRecipe` เดี่ยว + `OrderLoop`)
