@@ -6,18 +6,32 @@
     <Description>Cooking Simulator donation-mode mod</Description>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <!-- Game runs on Unity 2022.3, so the modern UnityWebRequest.Result API exists. -->
+    <DefineConstants>$(DefineConstants);UNITY_2020_1_OR_NEWER</DefineConstants>
     <!-- BepInEx/Unity assemblies are not redistributable; never publish them. -->
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- No NuGet packages: all refs are local DLLs from the game + BepInEx install. -->
+    <EnableDefaultItems>true</EnableDefaultItems>
+    <DisableImplicitNuGetFallbackFolder>true</DisableImplicitNuGetFallbackFolder>
 
-    <!-- Point this at the game's Managed folder, e.g.
-         C:\Program Files (x86)\Steam\steamapps\common\Cooking Simulator\Cooking Simulator_Data\Managed
-         Override on the command line: dotnet build -p:GameManagedDir="..." -->
-    <GameManagedDir Condition="'$(GameManagedDir)' == ''">PATH\TO\Cooking Simulator_Data\Managed</GameManagedDir>
+    <!-- Game install. Override on the command line:
+         dotnet build -p:GameDir="D:\path\to\CookingSimulator" -->
+    <GameDir Condition="'$(GameDir)' == ''">D:\Game\steamapps\common\CookingSimulator</GameDir>
+    <GameManagedDir Condition="'$(GameManagedDir)' == ''">$(GameDir)\CookingSim_Data\Managed</GameManagedDir>
+    <BepInExCoreDir Condition="'$(BepInExCoreDir)' == ''">$(GameDir)\BepInEx\core</BepInExCoreDir>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- BepInEx 5 (Mono) + HarmonyX come from NuGet for compile-time references. -->
-    <PackageReference Include="BepInEx.Core" Version="5.4.21" />
+    <!-- BepInEx 5 (Mono) + HarmonyX: reference the installed DLLs directly so the
+         compile-time version matches what loads at runtime. -->
+    <Reference Include="BepInEx">
+      <HintPath>$(BepInExCoreDir)\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BepInExCoreDir)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
@@ -32,6 +46,10 @@
     </Reference>
     <Reference Include="UnityEngine.UnityWebRequestModule">
       <HintPath>$(GameManagedDir)\UnityEngine.UnityWebRequestModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.JSONSerializeModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.JSONSerializeModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <!-- Needed once CookingSimGameBridge is wired to the game's own types. -->

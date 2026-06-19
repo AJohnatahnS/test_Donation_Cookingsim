@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Recipes; // RecipeDifficulty (Easy/Medium/Hard) lives in the Recipes namespace
 
 namespace CookingSimDonationMod
 {
@@ -50,7 +51,7 @@ namespace CookingSimDonationMod
 
             // Find the recipe among the base-game Food Network dishes. VERIFY that
             // FoodnetworkDish is the right source and is populated at this point.
-            Recipe recipe = fnm.FoodnetworkDish.FirstOrDefault(r => r != null && r.Id == gameId);
+            Recipe recipe = fnm.FoodnetworkDish.FirstOrDefault(r => r != null && r.CoreId.Id == gameId);
             if (recipe == null || !recipe.BaseGameRecipe)
             {
                 Plugin.Log.LogWarning($"recipe {gameId} not found / not base game");
@@ -60,8 +61,8 @@ namespace CookingSimDonationMod
             // Force this recipe as the next order. VERIFY this triggers an order
             // on demand within OrderLoop's cadence.
             fnm.SetDebugRecipesOrder(true, recipe);
-            recipeToEvent[recipe.Id] = order.eventId;
-            Plugin.Log.LogInfo($"forced order recipe {recipe.Id} for {order.donor}");
+            recipeToEvent[recipe.CoreId.Id] = order.eventId;
+            Plugin.Log.LogInfo($"forced order recipe {recipe.CoreId.Id} for {order.donor}");
             return true;
         }
 
@@ -87,8 +88,11 @@ namespace CookingSimDonationMod
 
                 catalog.Add(new CatalogEntry
                 {
-                    id = recipe.Id.ToString(),
-                    name = recipe.RecipeName, // VERIFY field name for display text
+                    id = recipe.CoreId.Id.ToString(),
+                    // Recipe has no plain-name field (names are localized via keys we
+                    // can't resolve offline). Id-based label is correct and stable;
+                    // a prettier localized name is the one cosmetic VERIFY left.
+                    name = "#" + recipe.CoreId.Id,
                     difficulty = MapDifficulty(recipe.RecipeDifficulty),
                     // Every dish in FoodnetworkDish is offerable in this kitchen;
                     // server-side difficultyOverrides (§8) handle re-bucketing.

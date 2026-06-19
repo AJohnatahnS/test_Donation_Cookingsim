@@ -3,25 +3,30 @@
 อ่านตรงจาก `Assembly-CSharp.dll` (เวอร์ชันที่ติดตั้งที่ `D:\Game\steamapps\common\CookingSimulator`)
 เป็นชื่อคลาส/เมธอด/enum จริงสำหรับเติม [../mod/src/CookingSimGameBridge.cs](../mod/src/CookingSimGameBridge.cs)
 
-> ทุกอย่างในนี้มาจาก metadata ของ DLL จริง แต่ **ยังไม่ได้ทดสอบในเกม** (sandbox นี้
-> build mod / รันเกมไม่ได้) จุดที่ยังไม่ชัวร์มาร์ค `ตรวจในเกม` ไว้
+> ✅ **2026-06-19: build + โหลดในเกมสำเร็จแล้ว** — mod คอมไพล์กับ DLL จริง (0 warning/error)
+> และโหลดผ่าน BepInEx 5.4.23.5 ในเกมจริง (Unity 2022.3) ด้วย `UseSimulatedBridge=false`
+> โดย `Harmony.PatchAll()` ผูก patch ครบทุกจุดโดยไม่มี exception (ดูหัวข้อ "ผลการ verify" ท้ายไฟล์)
+> เหลือเฉพาะการยืนยัน **พฤติกรรมตอนเล่นจริง** (ต้องเข้าโหมด Food Network จริง) — มาร์ค `ตรวจในเกม`
 
 ## สภาพแวดล้อม
 
-- Unity **Mono** (มี `MonoBleedingEdge/`) → ใช้ **BepInEx 5 x64 (Mono)**
+- Unity **2022.3** Mono (มี `MonoBleedingEdge/`, `UnityPlayer.dll` = 2022.3.62) → **BepInEx 5 x64 (Mono)**
+  - Unity 2022 → ใช้ `UnityWebRequest.result == Result.Success` (csproj define `UNITY_2020_1_OR_NEWER`)
+- `JsonUtility` อยู่ใน **`UnityEngine.JSONSerializeModule.dll`** (ต้องอ้างอิงแยกจาก CoreModule)
 - มี `UnityEngine.UnityWebRequestModule.dll` และ `Newtonsoft.Json.dll` ใน `Managed/`
 - โหมดเกมหลักที่สเปกใช้ = **Base Career / Food Network** (`GameState.FoodNetwork` / `Career`)
 
 ## คลาสหลักที่ใช้
 
-### `GameManager` (singleton — น่าจะ `Singleton<GameManager>.Instance`, `ตรวจในเกม`)
-สถานะเกมสำหรับ endpoint `/game`:
-- `GameState GameState` (enum: `Menu, Career, FoodNetwork, Sandbox, ...`)
-- `bool Paused`, `bool IsPlaying`, `bool IsMenu`, `bool DuringGame`
-- `string KitchenID`, `List<string> CurrentContentIDs` (ไว้ตรวจ DLC ที่เปิดอยู่)
-- **event** `Action GameStateChanged` ← subscribe ตัวนี้เพื่อรายงาน playing/paused/menu
-- `PauseTime()/UnpauseTime()`, `PauseTimeScale()/UnPauseTimeScale()` (เกมใช้ timeScale เอง —
-  Mod แค่ "อ่าน" สถานะ ไม่ต้องไปยุ่ง ปล่อยเวลาให้ server ถือ ตามสเปก §6)
+### `GameManager` — สถานะเกมสำหรับ endpoint `/game`
+- `GameState GameState` (instance), `bool IsMenu` / `bool IsPlaying` / `bool IsSandboxMode` (instance)
+- **`bool Paused` และ `bool DuringGame` เป็น `static`** ← จุดสำคัญ
+- ⚠️ **ไม่มี event `GameStateChanged` และไม่มี singleton accessor** (เช่น `.Me`/`.Instance`)
+  ที่คืน `GameManager` → แผนเดิมที่จะ subscribe event/อ่าน `__instance.IsMenu` **ใช้ไม่ได้**
+  - ทางแก้ที่ใช้จริง: Harmony patch setter `set_Paused` (static) + `set_GameState` (instance)
+    แล้ว**สรุปสถานะจาก static ล้วน**: `paused = GameManager.Paused`, `isMenu = !GameManager.DuringGame`
+    (เลี่ยงปัญหาว่า `IsMenu` เป็น instance แต่ไม่มีตัวชี้ instance ในบริบท patch แบบ static)
+  - `ตรวจในเกม`: `DuringGame` ต้องเป็น false ตรงกับจอเมนู/นอกเกมเพลย์ (จออาจ false ตอนโหลดด้วย)
 
 ### `FoodNetworkManager` (singleton: `FoodNetworkManager.Me`) — ระบบออเดอร์ Base career
 - `Recipe currentRecipe` — สูตรของออเดอร์ปัจจุบัน (**ทีละ 1 ออเดอร์**)
@@ -30,14 +35,20 @@
 - **`void SetDebugRecipesOrder(bool, Recipe)`** + `Recipe nextDebugRecipe` +
   `bool TryGetNextDebugRecipe(Recipe)` + `bool DebugRecipesOrder`
   → **ช่องบังคับสูตรของออเดอร์ถัดไป** (ใช้สร้างออเดอร์ตามที่ผู้ชมเลือก)
-- `void OrderEnd(Recipe)` — ออเดอร์สำเร็จ → Harmony **Postfix** เพื่อยิง `OrderCompleted`
-- `void OrderCancel(Recipe)`, `void OrderCancelEmptyPlate()` — ยกเลิก → `OrderFailed`
+- **`void OrderEnd(Recipe recipe)` และ `void OrderCancel(Recipe recipe)` เป็น `private`** →
+  Harmony patch ต้องอ้างด้วย **string** `"OrderEnd"`/`"OrderCancel"` (ใช้ `nameof` ไม่ได้ เพราะ private)
+  พารามิเตอร์ inject ด้วยชื่อจริง `recipe` → Postfix ยิง `OrderCompleted`/`OrderFailed`
+- `void OrderCancelEmptyPlate()` — ยกเลิกอีกทาง (ยังไม่ patch)
 - `Action OnTimeEnd`, `float ChallangeTimeLimit`, `float GameTime`, `RestartMealTimer()`
 
 ### `Recipe`
-- `int Id`, `ID CoreId` (struct `ID` ที่ provider ใช้), `int JsonID`, `int GeneratedID`
+- **`ID CoreId`** (struct ห่อ `int id`, มี `.Id` คืน int) ← **ใช้ตัวนี้** `recipe.CoreId.Id`
+  - `int Id` **ถูก deprecate** ("Use CoreId instead") — เลี่ยง, ใช้ `CoreId.Id` (int เดียวกัน parse ได้)
 - **`bool BaseGameRecipe`** — กรอง "เฉพาะ Base Game" (สเปก §1/§8)
-- **`RecipeDifficulty RecipeDifficulty`** — enum `Easy / Medium / Hard`
+- **`RecipeDifficulty RecipeDifficulty`** — field, enum อยู่ใน **namespace `Recipes`** (`Recipes.RecipeDifficulty`)
+  ค่า `Easy / Medium / Hard` (ต้อง `using Recipes;`)
+- ⚠️ **ไม่มี field ชื่อสูตรแบบ plain** (`RecipeName` ไม่มีจริง — ชื่อเป็น localized key)
+  → catalog ส่ง `name = "#<id>"` ไปก่อน; ชื่อ localized สวยๆ เป็น TODO ด้านความสวยงามอย่างเดียว
 - `RecipePackage RecipePackageType` — enum `Classic, American, Chinese, FoodNetwork, BBQ, ...`
   (ตัด DLC ด้วยการรับเฉพาะ `Classic` / `FoodNetwork`)
 
@@ -53,12 +64,12 @@
 
 | โปรโตคอล | เกมจริง |
 |---|---|
-| difficulty `easy/normal/hard` | `RecipeDifficulty.Easy/Medium/Hard` |
-| "เฉพาะ Base Game" | `Recipe.BaseGameRecipe == true` + `RecipePackageType ∈ {Classic, FoodNetwork}` |
-| recipe id | `Recipe.Id` / `Recipe.CoreId` |
+| difficulty `easy/normal/hard` | `Recipes.RecipeDifficulty.Easy/Medium/Hard` |
+| "เฉพาะ Base Game" | `Recipe.BaseGameRecipe == true` |
+| recipe id | **`Recipe.CoreId.Id`** (int) — *ไม่ใช่* `Recipe.Id` (deprecated) |
 | สร้างออเดอร์ | `FoodNetworkManager.Me.SetDebugRecipesOrder(true, recipe)` |
-| ออเดอร์สำเร็จ/หมดเวลา/ยกเลิก | Postfix `OrderEnd` / `OnTimeEnd` / `OrderCancel` |
-| สถานะเกม | `GameManager.GameStateChanged` + `.Paused` / `.GameState` |
+| ออเดอร์สำเร็จ/ยกเลิก | Postfix private `OrderEnd` / `OrderCancel` (อ้างด้วย string) |
+| สถานะเกม | patch `set_Paused`(static)/`set_GameState` → `GameManager.Paused` + `!GameManager.DuringGame` |
 
 ## ความไม่ตรงกันกับเกมจริง
 
@@ -77,9 +88,27 @@
 3. **โหมด Food Network มี loop/เวลาของตัวเอง** — ต้องยืนยันในเกมว่า `SetDebugRecipesOrder`
    บังคับออเดอร์ถัดไปได้ตามจังหวะที่เราต้องการจริง (`ตรวจในเกม`)
 
-## ขั้นตอน build/test (ทำนอก sandbox นี้)
+## ขั้นตอน build/test
 
-1. ติดตั้ง BepInEx 5 x64 (Mono) ลงโฟลเดอร์เกม รันเกม 1 ครั้งให้สร้าง `BepInEx/plugins`
-2. `dotnet build mod/CookingSimDonationMod.csproj -c Release -p:GameManagedDir="...\CookingSim_Data\Managed"`
+1. ติดตั้ง BepInEx 5 x64 (Mono) ลงโฟลเดอร์เกม (ทำแล้ว: 5.4.23.5)
+2. `dotnet build mod/CookingSimDonationMod.csproj -c Release` (csproj ตั้ง path เครื่องนี้ไว้แล้ว;
+   override ด้วย `-p:GameDir="..."` ถ้าย้ายเครื่อง)
+   - หมายเหตุ: เครื่องนี้มี machine-wide NuGet.Config ชี้ fallback folder ที่หายไป →
+     `mod/nuget.config` ล้าง fallback/sources เพื่อ build offline ล้วน
 3. คัดลอก DLL ไป `BepInEx/plugins/` ตั้ง `Game.UseSimulatedBridge=false`
 4. เปิดเกมโหมด Food Network + รัน `node server.js` + ตัวป้อนโดเนต แล้วดู log/overlay
+
+## ผลการ verify (2026-06-19)
+
+✅ **คอมไพล์** กับ DLL จริง: `bin/Release/CookingSimDonationMod.dll` — 0 warning, 0 error
+✅ **โหลดในเกมจริง** (Unity 2022.3, BepInEx 5.4.23.5) ด้วย `UseSimulatedBridge=false`:
+`LogOutput.log` แสดง `Cooking Sim Donation Mod 0.1.0 loaded — ... Cooking Simulator bridge`
+ตามด้วย `Chainloader startup complete` **ไม่มี exception ใดๆ**
+→ พิสูจน์ว่า reference ครบ และ `Harmony.PatchAll()` **ผูก patch target ครบทั้ง 4 จุด**
+(`OrderEnd`/`OrderCancel` private, `set_Paused` static, `set_GameState`) สำเร็จกับ runtime จริง
+
+🟡 **ยังต้อง `ตรวจในเกม` (ต้องเข้าเล่น Food Network จริง)** — ส่วนที่ build/load ยืนยันไม่ได้:
+1. `SetDebugRecipesOrder(true, recipe)` บังคับออเดอร์ถัดไปจริงตามจังหวะที่ต้องการ
+2. `FoodnetworkDish` ถูก populate ตอนอยู่ในโหมด (catalog ไม่ว่าง)
+3. `OrderEnd`/`OrderCancel` ยิงจริงตอนจบ/ยกเลิกออเดอร์ และ map กลับ eventId ถูก
+4. `!DuringGame` ตรงกับสถานะ "เมนู" ที่เราต้องการรายงานจริง
